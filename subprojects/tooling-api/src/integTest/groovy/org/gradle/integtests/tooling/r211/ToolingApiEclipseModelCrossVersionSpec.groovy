@@ -155,6 +155,33 @@ description = org.gradle.internal.jvm.Jvm.current().javaHome.toString()
         subprojectC.javaSourceSettings.targetBytecodeLevel == JavaVersion.VERSION_1_3
     }
 
+    def "Project with a single Software Model component can be imported into the IDE"() {
+        given:
+        buildFile << """
+            plugins {
+                id 'jvm-component'
+                id 'java-lang'
+            }
+            model {
+                components {
+                    main(JvmLibrarySpec)
+                }
+            }
+        """.stripIndent().trim()
+
+        when:
+        EclipseProject rootProject = loadEclipseProjectModel()
+
+        then:
+        rootProject.name == 'root'
+        rootProject.projectDirectory == projectDir
+        rootProject.javaSourceSettings == null
+        rootProject.projectNatures.isEmpty()
+        rootProject.buildCommands.isEmpty()
+        rootProject.classpath.isEmpty()
+        rootProject.projectDependencies.isEmpty()
+    }
+
     private EclipseProject loadEclipseProjectModel() {
         withConnection { connection -> connection.getModel(EclipseProject) }
     }
