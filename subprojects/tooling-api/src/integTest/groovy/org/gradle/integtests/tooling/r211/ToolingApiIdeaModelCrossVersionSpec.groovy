@@ -305,12 +305,12 @@ class ToolingApiIdeaModelCrossVersionSpec extends ToolingApiSpecification {
 
         when:
         def ideaProject = loadIdeaProjectModel()
-        def rootModule = ideaProject.modules.find { it.name == 'root' }
+        def mainModule = ideaProject.modules.find { it.name == 'main' }
 
         then:
-        rootModule.contentRoots[0].rootDirectory == projectDir
-        rootModule.javaSourceSettings == null
-        rootModule.dependencies.isEmpty()
+        mainModule.contentRoots[0].rootDirectory == projectDir
+        mainModule.javaSourceSettings == null
+        mainModule.dependencies.isEmpty()
     }
 
     private IdeaProject loadIdeaProjectModel() {

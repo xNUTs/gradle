@@ -5,7 +5,7 @@ import org.gradle.tooling.model.idea.IdeaModule
 import org.gradle.tooling.model.idea.IdeaProject
 import org.gradle.tooling.model.idea.IdeaSourceDirectory
 
-def connection = GradleConnector.newConnector().forProjectDirectory(file("../play-app")).connect()
+def connection = GradleConnector.newConnector().forProjectDirectory(file("../spike")).connect()
 renderIdeaProject(connection.getModel(IdeaProject))
 renderEclipseWorkspace(connection.getModel(EclipseProject))
 
