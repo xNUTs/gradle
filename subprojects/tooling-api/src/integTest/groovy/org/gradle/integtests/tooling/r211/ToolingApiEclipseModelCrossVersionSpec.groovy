@@ -176,8 +176,13 @@ description = org.gradle.internal.jvm.Jvm.current().javaHome.toString()
         rootProject.name == 'root'
         rootProject.projectDirectory == projectDir
         rootProject.javaSourceSettings == null
-        rootProject.projectNatures.isEmpty()
-        rootProject.buildCommands.isEmpty()
+        rootProject.projectNatures.size() == 1
+        rootProject.buildCommands.size() == 1
+        rootProject.linkedResources.size() == 2
+        rootProject.linkedResources.getAt(0).name == 'java'
+        rootProject.linkedResources.getAt(0).location.endsWith('src/main/java')
+        rootProject.linkedResources.getAt(1).name == 'resources'
+        rootProject.linkedResources.getAt(1).location.endsWith('src/main/resources')
         rootProject.classpath.isEmpty()
         rootProject.projectDependencies.isEmpty()
     }
