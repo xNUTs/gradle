@@ -84,6 +84,14 @@ class IdeaPlugin extends IdePlugin {
             module.conventionMapping.contentRoot = { project.projectDir }
             module.conventionMapping.testSourceDirs = { [] as LinkedHashSet }
             module.conventionMapping.excludeDirs = { [project.buildDir, project.file('.gradle')] as LinkedHashSet }
+            module.conventionMapping.pathFactory = {
+                PathFactory factory = new PathFactory()
+                factory.addPathVariable('MODULE_DIR', project.projectDir)
+                module.pathVariables.each { key, value ->
+                    factory.addPathVariable(key, value)
+                }
+                factory
+            }
             modules.add(module)
         })
     }
