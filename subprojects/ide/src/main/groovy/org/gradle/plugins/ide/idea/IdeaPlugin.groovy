@@ -77,7 +77,7 @@ class IdeaPlugin extends IdePlugin {
 
     void collectSoftwareModelModulesInto(Collection<IdeaModule> modules, Project project) {
         ComponentSpecContainer components = modelRegistry.find("components", ComponentSpecContainer)
-        components.values().each({ JvmLibrarySpec component ->
+        components.withType(JvmLibrarySpec).values().each({ JvmLibrarySpec component ->
             IdeaModule module = instantiator.newInstance(IdeaModule, project, null)
             module.conventionMapping.name = { component.name }
             module.conventionMapping.sourceDirs = { sourceDirsFor(component) }
