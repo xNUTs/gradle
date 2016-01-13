@@ -20,6 +20,7 @@ import org.gradle.api.internal.artifacts.ivyservice.projectmodule.ProjectPublica
 import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.internal.project.ProjectTaskLister;
 import org.gradle.configuration.project.ProjectConfigureAction;
+import org.gradle.model.internal.registry.ModelRegistry;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
 public class ToolingRegistrationAction implements ProjectConfigureAction {
@@ -27,10 +28,11 @@ public class ToolingRegistrationAction implements ProjectConfigureAction {
         ToolingModelBuilderRegistry modelBuilderRegistry = project.getServices().get(ToolingModelBuilderRegistry.class);
         ProjectPublicationRegistry projectPublicationRegistry = project.getServices().get(ProjectPublicationRegistry.class);
         ProjectTaskLister taskLister = project.getServices().get(ProjectTaskLister.class);
+        ModelRegistry modelRegistry = project.getServices().get(ModelRegistry.class);
 
         GradleProjectBuilder gradleProjectBuilder  = new GradleProjectBuilder();
         IdeaModelBuilder ideaModelBuilder = new IdeaModelBuilder(gradleProjectBuilder);
-        modelBuilderRegistry.register(new EclipseModelBuilder(gradleProjectBuilder));
+        modelBuilderRegistry.register(new EclipseModelBuilder(gradleProjectBuilder, modelRegistry));
         modelBuilderRegistry.register(ideaModelBuilder);
         modelBuilderRegistry.register(gradleProjectBuilder);
         modelBuilderRegistry.register(new GradleBuildBuilder());

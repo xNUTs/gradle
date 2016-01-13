@@ -155,16 +155,23 @@ description = org.gradle.internal.jvm.Jvm.current().javaHome.toString()
         subprojectC.javaSourceSettings.targetBytecodeLevel == JavaVersion.VERSION_1_3
     }
 
-    def "Project with a single Software Model component can be imported into the IDE"() {
+    def "Project with a single component and a single test suite can be imported into the IDE"() {
         given:
         buildFile << """
             plugins {
                 id 'jvm-component'
                 id 'java-lang'
+                id 'junit-test-suite'
             }
             model {
                 components {
                     main(JvmLibrarySpec)
+                }
+                testSuites {
+                    test(JUnitTestSuiteSpec) {
+                        JUnitVersion = '4.12'
+                        testing 'main'
+                    }
                 }
             }
         """.stripIndent().trim()
@@ -175,15 +182,23 @@ description = org.gradle.internal.jvm.Jvm.current().javaHome.toString()
         then:
         rootProject.name == 'root'
         rootProject.projectDirectory == projectDir
-        rootProject.javaSourceSettings == null
+        rootProject.javaSourceSettings != null
         rootProject.projectNatures.size() == 1
         rootProject.buildCommands.size() == 1
-        rootProject.linkedResources.size() == 2
-        rootProject.linkedResources.getAt(0).name == 'java'
-        rootProject.linkedResources.getAt(0).location.endsWith('src/main/java')
-        rootProject.linkedResources.getAt(1).name == 'resources'
-        rootProject.linkedResources.getAt(1).location.endsWith('src/main/resources')
-        rootProject.classpath.isEmpty()
+        rootProject.linkedResources.size() == 4
+        rootProject.linkedResources.getAt(0).name == "Java source 'main:java'"
+        rootProject.linkedResources.getAt(0).location == file('src/main/java').absolutePath
+        rootProject.linkedResources.getAt(1).name == "JVM resources 'main:resources'"
+        rootProject.linkedResources.getAt(1).location == file('src/main/resources').absolutePath
+        rootProject.linkedResources.getAt(2).name == "Java source 'test:java'"
+        rootProject.linkedResources.getAt(2).location == file('src/test/java').absolutePath
+        rootProject.linkedResources.getAt(3).name == "JVM resources 'test:resources'"
+        rootProject.linkedResources.getAt(3).location == file('src/test/resources').absolutePath
+        rootProject.classpath.size() == 4
+        rootProject.classpath.getAt(0).getFile() == file('src/main/java')
+        rootProject.classpath.getAt(1).getFile() == file('src/main/resources')
+        rootProject.classpath.getAt(2).getFile() == file('src/test/java')
+        rootProject.classpath.getAt(3).getFile() == file('src/test/resources')
         rootProject.projectDependencies.isEmpty()
     }
 

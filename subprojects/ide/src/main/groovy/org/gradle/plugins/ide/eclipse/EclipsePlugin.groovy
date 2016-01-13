@@ -22,11 +22,6 @@ import org.gradle.api.plugins.JavaBasePlugin
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.plugins.scala.ScalaBasePlugin
 import org.gradle.internal.reflect.Instantiator
-import org.gradle.jvm.JvmLibrarySpec
-import org.gradle.language.base.plugins.ComponentModelBasePlugin
-import org.gradle.language.java.plugins.JavaLanguagePlugin
-import org.gradle.model.internal.registry.ModelRegistry
-import org.gradle.platform.base.ComponentSpecContainer
 import org.gradle.plugins.ear.EarPlugin
 import org.gradle.plugins.ide.api.XmlFileContentMerger
 import org.gradle.plugins.ide.eclipse.internal.EclipseNameDeduper
@@ -34,10 +29,7 @@ import org.gradle.plugins.ide.eclipse.internal.LinkedResourcesCreator
 import org.gradle.plugins.ide.eclipse.model.BuildCommand
 import org.gradle.plugins.ide.eclipse.model.EclipseClasspath
 import org.gradle.plugins.ide.eclipse.model.EclipseModel
-import org.gradle.plugins.ide.eclipse.model.Link
-import org.gradle.plugins.ide.eclipse.model.internal.SourceFoldersCreator
 import org.gradle.plugins.ide.internal.IdePlugin
-import org.gradle.api.tasks.SourceSet
 
 import javax.inject.Inject
 
@@ -51,12 +43,10 @@ class EclipsePlugin extends IdePlugin {
     static final String ECLIPSE_JDT_TASK_NAME = "eclipseJdt"
 
     private final Instantiator instantiator
-    private final ModelRegistry modelRegistry
 
     @Inject
-    EclipsePlugin(Instantiator instantiator, ModelRegistry modelRegistry) {
+    EclipsePlugin(Instantiator instantiator) {
         this.instantiator = instantiator
-        this.modelRegistry = modelRegistry
     }
 
     @Override
@@ -74,7 +64,6 @@ class EclipsePlugin extends IdePlugin {
         configureEclipseProject(project, model)
         configureEclipseJdt(project, model)
         configureEclipseClasspath(project, model)
-        configureForSoftwareModel(project, model)
 
         hookDeduplicationToTheRoot(project)
     }
@@ -190,41 +179,6 @@ class EclipsePlugin extends IdePlugin {
                 jdt.conventionMapping.targetCompatibility = { project.targetCompatibility }
                 jdt.conventionMapping.javaRuntimeName = { String.format("JavaSE-%s", project.targetCompatibility) }
             }
-        }
-    }
-
-    private void configureForSoftwareModel(Project project, EclipseModel model) {
-        if (!project.plugins.hasPlugin(ComponentModelBasePlugin)) {
-            return
-        }
-        if (model.project==null) {
-            model.project = instantiator.newInstance(EclipseProject, null)
-            model.project.name = project.name
-            model.project.conventionMapping.comment = { project.description }
-        }
-        if (project.plugins.hasPlugin(JavaLanguagePlugin)) {
-            if (!model.project.buildCommands.contains('org.eclipse.jdt.core.javabuilder')) {
-                model.project.buildCommand 'org.eclipse.jdt.core.javabuilder'
-            }
-            if (!model.project.natures.contains('org.eclipse.jdt.core.javanature')) {
-                model.project.natures 'org.eclipse.jdt.core.javanature'
-            }
-        }
-        def linkedSources = []
-        ComponentSpecContainer components = modelRegistry.find("components", ComponentSpecContainer)
-        components.withType(JvmLibrarySpec).values().each({ JvmLibrarySpec component ->
-            component.getSources().each({ lss ->
-                lss.source.srcDirs.each({ srcDir ->
-                    linkedSources += new Link(lss.displayName, '2', srcDir.absolutePath, null)
-                })
-            })
-        })
-        model.project.conventionMapping.linkedResources = {
-            linkedSources as Set
-        }
-        if (model.classpath==null) {
-            model.classpath = instantiator.newInstance(EclipseClasspath, project)
-            model.classpath.conventionMapping.defaultOutputDir = { new File(project.projectDir, 'bin') }
         }
     }
 
