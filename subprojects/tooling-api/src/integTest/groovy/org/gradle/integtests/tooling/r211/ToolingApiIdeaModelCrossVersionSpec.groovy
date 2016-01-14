@@ -20,7 +20,11 @@ import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.integtests.tooling.fixture.ToolingApiVersion
 import org.gradle.internal.jvm.Jvm
+import org.gradle.tooling.BuildAction
+import org.gradle.tooling.BuildController
+import org.gradle.tooling.ProjectConnection
 import org.gradle.tooling.model.UnsupportedMethodException
+import org.gradle.tooling.model.idea.BasicIdeaProject
 import org.gradle.tooling.model.idea.IdeaProject
 
 @ToolingApiVersion(">=2.11")
@@ -314,7 +318,30 @@ class ToolingApiIdeaModelCrossVersionSpec extends ToolingApiSpecification {
     }
 
     private IdeaProject loadIdeaProjectModel() {
-        withConnection { connection -> connection.getModel(IdeaProject) }
+        withConnection { connection ->
+            executeIdeaBuildAction(connection)
+            connection.getModel(IdeaProject)
+        }
+    }
+
+    static class IdeaModuleCountBuildAction implements BuildAction<String>, Serializable {
+        @Override
+        String execute(BuildController controller) {
+            assert System.getProperty('build-action') == 'true'
+            def project = controller.getModel(BasicIdeaProject)
+            println "${project.modules.size()} found"
+            "ok"
+        }
+    }
+
+    private void executeIdeaBuildAction(ProjectConnection connection) {
+        def stdout = new ByteArrayOutputStream()
+        def action = connection.action(new IdeaModuleCountBuildAction())
+        action
+            .withArguments("-Dbuild-action=true")
+            .setStandardOutput(stdout)
+            .run()
+        println(new String(stdout.toByteArray()))
     }
 
     private JavaVersion toJavaVersion(ideaLanguageLevel) {
