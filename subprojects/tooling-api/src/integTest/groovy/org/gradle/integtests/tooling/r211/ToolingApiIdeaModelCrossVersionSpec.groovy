@@ -15,6 +15,7 @@
  */
 
 package org.gradle.integtests.tooling.r211
+
 import org.gradle.api.JavaVersion
 import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
@@ -313,8 +314,10 @@ class ToolingApiIdeaModelCrossVersionSpec extends ToolingApiSpecification {
 
         then:
         mainModule.contentRoots[0].rootDirectory == projectDir
-        mainModule.javaSourceSettings == null
-        mainModule.dependencies.isEmpty()
+
+        def sourceDirectory = mainModule.contentRoots[0].sourceDirectories.first()
+        sourceDirectory.generated == false
+        sourceDirectory.directory == new File(projectDir, "src/main/java")
     }
 
     private IdeaProject loadIdeaProjectModel() {

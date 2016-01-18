@@ -16,14 +16,17 @@
 package org.gradle.plugins.ide.idea
 import org.gradle.api.JavaVersion
 import org.gradle.api.Project
+import org.gradle.api.internal.project.ProjectIdentifier
 import org.gradle.api.plugins.JavaBasePlugin
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.plugins.scala.ScalaBasePlugin
 import org.gradle.internal.reflect.Instantiator
-import org.gradle.jvm.JvmLibrarySpec
+import org.gradle.jvm.internal.JarBinarySpecInternal
 import org.gradle.language.base.plugins.ComponentModelBasePlugin
+import org.gradle.model.Model
+import org.gradle.model.ModelMap
+import org.gradle.model.RuleSource
 import org.gradle.model.internal.registry.ModelRegistry
-import org.gradle.platform.base.ComponentSpecContainer
 import org.gradle.plugins.ide.api.XmlFileContentMerger
 import org.gradle.plugins.ide.idea.internal.IdeaNameDeduper
 import org.gradle.plugins.ide.idea.internal.IdeaScalaConfigurer
@@ -37,7 +40,7 @@ import javax.inject.Inject
  */
 class IdeaPlugin extends IdePlugin {
     private final Instantiator instantiator
-    IdeaModel model
+    IdeaModel _model
     ModelRegistry modelRegistry
 
     @Inject
@@ -54,50 +57,68 @@ class IdeaPlugin extends IdePlugin {
         lifecycleTask.description = 'Generates IDEA project files (IML, IPR, IWS)'
         cleanTask.description = 'Cleans IDEA project files (IML, IPR)'
 
-        model = project.extensions.create("idea", IdeaModel)
+        _model = project.extensions.create("idea", IdeaModel)
 
         configureIdeaWorkspace(project)
         configureIdeaProject(project)
         configureIdeaModule(project)
         configureForJavaPlugin(project)
         configureForScalaPlugin()
-        configureForSoftwareModel(project)
 
         hookDeduplicationToTheRoot(project)
     }
 
-    def configureForSoftwareModel(Project project) {
-        if (!project.plugins.hasPlugin(ComponentModelBasePlugin)) {
-            return
+    public IdeaModel getModel() {
+        if (project.plugins.hasPlugin(ComponentModelBasePlugin)) {
+            List<IdeaModule> modules = modelRegistry.find("ideaModules", List)
+            // intellij currently ignores both additional modules
+            // and additional source directories on the single module assumed
+            // for the project
+            // Uncomment the following line and comment out the one below it
+            // to try it out
+            //_model.module.sourceDirs = modules.collectMany { m -> m.sourceDirs }
+            _model.project.modules =  modules
         }
-        def modules = [model.module] as List<IdeaModule>
-        collectSoftwareModelModulesInto(modules, project)
-        model.project.modules = modules
+        _model
     }
 
-    void collectSoftwareModelModulesInto(Collection<IdeaModule> modules, Project project) {
-        ComponentSpecContainer components = modelRegistry.find("components", ComponentSpecContainer)
-        components.withType(JvmLibrarySpec).values().each({ JvmLibrarySpec component ->
-            IdeaModule module = instantiator.newInstance(IdeaModule, project, null)
-            module.conventionMapping.name = { component.name }
-            module.conventionMapping.sourceDirs = { sourceDirsFor(component) }
-            module.conventionMapping.contentRoot = { project.projectDir }
-            module.conventionMapping.testSourceDirs = { [] as LinkedHashSet }
-            module.conventionMapping.excludeDirs = { [project.buildDir, project.file('.gradle')] as LinkedHashSet }
-            module.conventionMapping.pathFactory = {
+    static class SoftwareModelRules extends RuleSource {
+
+        @Model
+        List<IdeaModule> ideaModules(ModelMap<JarBinarySpecInternal> components, ProjectIdentifier project) {
+            def buildDir = new File(project.projectDir, "build")
+            def modules = [] as List<IdeaModule>
+            components.values().each({ JarBinarySpecInternal binary ->
+                def library = binary.getLibrary()
+
+                IdeaModule module = new IdeaModule(project, null)
+                module.name = library.name
+                module.sourceDirs = library.getSources().collectMany { it.source.srcDirs }
+                module.contentRoot = project.projectDir
+                module.testSourceDirs = [] as LinkedHashSet
+                def file = { String relativePath -> new File(project.projectDir, relativePath) }
+                module.excludeDirs = [buildDir, file('.gradle'), file('.idea')] as LinkedHashSet
+                module.scopes = [
+                    PROVIDED: [plus: [], minus: []],
+                    COMPILE: [plus: [], minus: []],
+                    RUNTIME: [plus: [], minus: []],
+                    TEST: [plus: [], minus: []]
+                ]
+                module.outputDir = binary.assembly.classDirectories.first()
+                module.singleEntryLibraries = [
+                    RUNTIME: binary.assembly.classDirectories,
+                    TEST: []
+                ]
                 PathFactory factory = new PathFactory()
                 factory.addPathVariable('MODULE_DIR', project.projectDir)
                 module.pathVariables.each { key, value ->
                     factory.addPathVariable(key, value)
                 }
-                factory
-            }
-            modules.add(module)
-        })
-    }
-
-    Set<File> sourceDirsFor(JvmLibrarySpec jvmLibrarySpec) {
-        jvmLibrarySpec.getSources().collectMany { it.source.srcDirs }
+                module.pathFactory = factory
+                modules.add(module)
+            })
+            return modules
+        }
     }
 
     void hookDeduplicationToTheRoot(Project project) {
@@ -116,7 +137,7 @@ class IdeaPlugin extends IdePlugin {
         if (isRoot(project)) {
             def task = project.task('ideaWorkspace', description: 'Generates an IDEA workspace file (IWS)', type: GenerateIdeaWorkspace) {
                 workspace = new IdeaWorkspace(iws: new XmlFileContentMerger(xmlTransformer))
-                model.workspace = workspace
+                _model.workspace = workspace
                 outputFile = new File(project.projectDir, project.name + ".iws")
             }
             addWorker(task, false)
@@ -129,7 +150,7 @@ class IdeaPlugin extends IdePlugin {
                 def ipr = new XmlFileContentMerger(xmlTransformer)
                 ideaProject = instantiator.newInstance(IdeaProject, project, ipr)
 
-                model.project = ideaProject
+                _model.project = ideaProject
 
                 ideaProject.outputFile = new File(project.projectDir, project.name + ".ipr")
                 ideaProject.conventionMapping.jdkName = { JavaVersion.current().toString() }
@@ -164,7 +185,7 @@ class IdeaPlugin extends IdePlugin {
             def iml = new IdeaModuleIml(xmlTransformer, project.projectDir)
             module = instantiator.newInstance(IdeaModule, project, iml)
 
-            model.module = module
+            _model.module = module
 
             module.conventionMapping.sourceDirs = { [] as LinkedHashSet }
             module.conventionMapping.name = { project.name }
