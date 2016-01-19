@@ -16,9 +16,23 @@
 
 package org.gradle.plugins.ide.internal.tooling;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.internal.jvm.Jvm;
+import org.gradle.jvm.JvmLibrarySpec;
+import org.gradle.jvm.test.JvmTestSuiteSpec;
+import org.gradle.jvm.test.JvmTestSuiteBinarySpec;
+import org.gradle.language.base.LanguageSourceSet;
+import org.gradle.language.base.plugins.ComponentModelBasePlugin;
+import org.gradle.model.internal.registry.ModelRegistry;
+import org.gradle.platform.base.BinaryContainer;
+import org.gradle.platform.base.BinarySpec;
+import org.gradle.platform.base.ComponentSpec;
+import org.gradle.platform.base.ComponentSpecContainer;
+import org.gradle.testing.base.TestSuiteContainer;
 import org.gradle.plugins.ide.eclipse.EclipsePlugin;
 import org.gradle.plugins.ide.eclipse.model.*;
 import org.gradle.plugins.ide.internal.tooling.eclipse.*;
@@ -39,9 +53,15 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
     private TasksFactory tasksFactory;
     private DefaultGradleProject<?> rootGradleProject;
     private Project currentProject;
+    private final ModelRegistry modelRegistry;
 
     public EclipseModelBuilder(GradleProjectBuilder gradleProjectBuilder) {
+        this(gradleProjectBuilder, null);
+    }
+
+    public EclipseModelBuilder(GradleProjectBuilder gradleProjectBuilder, ModelRegistry modelRegistry) {
         this.gradleProjectBuilder = gradleProjectBuilder;
+        this.modelRegistry = modelRegistry;
     }
 
     public boolean canBuild(String modelName) {
@@ -167,8 +187,101 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
             );
         }
 
+        populateSoftwareModel(project);
+
         for (Project childProject : project.getChildProjects().values()) {
             populate(childProject);
         }
+    }
+
+    private void populateSoftwareModel(Project project) {
+        if (modelRegistry == null || !project.getPlugins().hasPlugin(ComponentModelBasePlugin.class)) {
+            return;
+        }
+        DefaultEclipseProject eclipseProject = projectMapping.get(project.getPath());
+        Jvm currentJvm = Jvm.current();
+        eclipseProject.setJavaSourceSettings(new DefaultEclipseJavaSourceSettings()
+            .setSourceLanguageLevel(currentJvm.getJavaVersion())
+            .setTargetBytecodeVersion(currentJvm.getJavaVersion())
+            .setJdk(DefaultInstalledJdk.current())
+        );
+        ensureBuildCommand(eclipseProject, "org.eclipse.jdt.core.javabuilder");
+        ensureProjectNature(eclipseProject, "org.eclipse.jdt.core.javanature");
+
+        Set<File> allSourceDirectories = Sets.newLinkedHashSet();
+        ComponentSpecContainer components = modelRegistry.find("components", ComponentSpecContainer.class);
+        for (JvmLibrarySpec component : components.withType(JvmLibrarySpec.class).values()) {
+            allSourceDirectories.addAll(sourceDirectoriesOf(component));
+        }
+        TestSuiteContainer testSuites = modelRegistry.find("testSuites", TestSuiteContainer.class);
+        if (testSuites != null) {
+            for (JvmTestSuiteSpec testSuite : testSuites.withType(JvmTestSuiteSpec.class).values()) {
+                allSourceDirectories.addAll(sourceDirectoriesOf(testSuite));
+            }
+        }
+
+        List<DefaultEclipseSourceDirectory> sourceDirectories = Lists.newArrayList(eclipseProject.getSourceDirectories());
+        List<DefaultEclipseExternalDependency> classpath = Lists.newArrayList(eclipseProject.getClasspath());
+        for (File sourceDirectory : allSourceDirectories) {
+            if (!sourceDirectory.exists()) {
+                sourceDirectory.mkdirs();
+            }
+            sourceDirectories.add(new DefaultEclipseSourceDirectory(project.relativePath(sourceDirectory), sourceDirectory));
+            classpath.add(new DefaultEclipseExternalDependency(sourceDirectory, null, sourceDirectory, null, true));
+        }
+
+        // Here we reuse the model infrastructure used to run tests to gather external dependencies
+        // This means that external dependencies are added to the project only if it has some test suite, spiky
+        BinaryContainer binaries = modelRegistry.find("binaries", BinaryContainer.class);
+        for (JvmTestSuiteBinarySpec binary : binaries.withType(JvmTestSuiteBinarySpec.class).values()) {
+            for (File file : binary.getRuntimeClasspath().getFiles()) {
+                if (allSourceDirectories.contains(file.getAbsoluteFile())) {
+                    break;
+                }
+                classpath.add(new DefaultEclipseExternalDependency(file, null, null, null, false));
+            }
+        }
+
+        eclipseProject.setSourceDirectories(sourceDirectories);
+        eclipseProject.setClasspath(classpath);
+    }
+
+    private static void ensureBuildCommand(DefaultEclipseProject eclipseProject, String buildCommand) {
+        boolean hasBuildCommand = false;
+        for (DefaultEclipseBuildCommand builder : eclipseProject.getBuildCommands()) {
+            if (builder.getName().equals(buildCommand)) {
+                hasBuildCommand = true;
+                break;
+            }
+        }
+        if (!hasBuildCommand) {
+            eclipseProject.getBuildCommands().add(new DefaultEclipseBuildCommand(buildCommand, Collections.EMPTY_MAP));
+        }
+    }
+
+    private static void ensureProjectNature(DefaultEclipseProject eclipseProject, String projectNature) {
+        boolean hasProjectNature = false;
+        for (DefaultEclipseProjectNature nature : eclipseProject.getProjectNatures()) {
+            if (nature.getId().equals(projectNature)) {
+                hasProjectNature = true;
+                break;
+            }
+        }
+        if (!hasProjectNature) {
+            eclipseProject.getProjectNatures().add(new DefaultEclipseProjectNature(projectNature));
+        }
+    }
+
+    private static Set<File> sourceDirectoriesOf(ComponentSpec component) {
+        Set<File> sourceDirs = Sets.newLinkedHashSet();
+        for (LanguageSourceSet componentSourceSet : component.getSources().values()) {
+            sourceDirs.addAll(componentSourceSet.getSource().getSrcDirs());
+        }
+        for (BinarySpec binary : component.getBinaries().values()) {
+            for (LanguageSourceSet binarySourceSet : binary.getSources().values()) {
+                sourceDirs.addAll(binarySourceSet.getSource().getSrcDirs());
+            }
+        }
+        return sourceDirs;
     }
 }

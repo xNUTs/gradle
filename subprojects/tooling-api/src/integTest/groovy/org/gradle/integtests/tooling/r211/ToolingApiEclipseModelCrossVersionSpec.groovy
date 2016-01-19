@@ -155,6 +155,54 @@ description = org.gradle.internal.jvm.Jvm.current().javaHome.toString()
         subprojectC.javaSourceSettings.targetBytecodeVersion == JavaVersion.VERSION_1_3
     }
 
+    def "Project with a single component and a single test suite can be imported into the IDE"() {
+        given:
+        buildFile << """
+            plugins {
+                id 'jvm-component'
+                id 'java-lang'
+                id 'junit-test-suite'
+            }
+            repositories {
+                jcenter()
+            }
+            model {
+                components {
+                    main(JvmLibrarySpec)
+                }
+                testSuites {
+                    test(JUnitTestSuiteSpec) {
+                        jUnitVersion = '4.12'
+                        testing \$.components.main
+                    }
+                }
+            }
+        """.stripIndent().trim()
+
+        when:
+        EclipseProject rootProject = loadEclipseProjectModel()
+
+        then:
+        rootProject.name == 'root'
+        rootProject.projectDirectory == projectDir
+        rootProject.javaSourceSettings != null
+        rootProject.projectNatures.size() == 1
+        rootProject.buildCommands.size() == 1
+        rootProject.linkedResources.size() == 0
+        rootProject.classpath.size() == 10
+        rootProject.classpath.find({ it.file == file('src/main/java')})
+        rootProject.classpath.find({ it.file == file('src/main/resources')})
+        rootProject.classpath.find({ it.file == file('src/test/java')})
+        rootProject.classpath.find({ it.file == file('src/test/resources')})
+        rootProject.classpath.find({ it.file == file('build/classes/main/jar')})
+        rootProject.classpath.find({ it.file == file('build/resources/main/jar')})
+        rootProject.classpath.find({ it.file == file('build/classes/test/mainJarBinary')})
+        rootProject.classpath.find({ it.file == file('build/resources/test/mainJarBinary')})
+        rootProject.classpath.find({ it.file.name == 'junit-4.12.jar'})
+        rootProject.classpath.find({ it.file.name == 'hamcrest-core-1.3.jar'})
+        rootProject.projectDependencies.isEmpty()
+    }
+
     private EclipseProject loadEclipseProjectModel() {
         withConnection { connection -> connection.getModel(EclipseProject) }
     }
