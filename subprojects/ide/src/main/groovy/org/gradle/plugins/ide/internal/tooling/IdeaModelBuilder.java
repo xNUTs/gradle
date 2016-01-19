@@ -85,13 +85,12 @@ public class IdeaModelBuilder implements ToolingModelBuilder {
             buildDependencies(modules, module);
         }
         final Collection<DefaultIdeaModule> ideaModules = modules.values();
-
         out.setChildren(new LinkedList<DefaultIdeaModule>(ideaModules));
         return out;
     }
 
-    private IdeaPlugin ideaPluginFor(Project root) {
-        return root.getPlugins().getPlugin(IdeaPlugin.class);
+    private IdeaPlugin ideaPluginFor(Project project) {
+        return project.getPlugins().getPlugin(IdeaPlugin.class);
     }
 
     private void buildDependencies(Map<String, DefaultIdeaModule> modules, IdeaModule ideaModule) {
