@@ -227,7 +227,7 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
         eclipseProject.setJavaSourceSettings(new DefaultJavaSourceSettings()
             .setSourceLanguageLevel(JavaVersion.VERSION_1_6)
             .setTargetBytecodeLevel(JavaVersion.VERSION_1_6)
-            .setTargetRuntime(new DefaultJavaRuntime(currentJvm.getJavaHome(), currentJvm.getJavaVersion()))
+            .setTargetRuntime(new DefaultJavaInstallation(currentJvm.getJavaHome(), currentJvm.getJavaVersion()))
         );
     }
 
