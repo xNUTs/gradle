@@ -40,32 +40,13 @@ import javax.inject.Inject
  */
 class IdeaPlugin extends IdePlugin {
     private final Instantiator instantiator
-    IdeaModel _model
+    private IdeaModel ideaModel
     ModelRegistry modelRegistry
 
     @Inject
     IdeaPlugin(Instantiator instantiator, ModelRegistry modelRegistry) {
         this.modelRegistry = modelRegistry
         this.instantiator = instantiator
-    }
-
-    @Override protected String getLifecycleTaskName() {
-        return 'idea'
-    }
-
-    @Override protected void onApply(Project project) {
-        lifecycleTask.description = 'Generates IDEA project files (IML, IPR, IWS)'
-        cleanTask.description = 'Cleans IDEA project files (IML, IPR)'
-
-        _model = project.extensions.create("idea", IdeaModel)
-
-        configureIdeaWorkspace(project)
-        configureIdeaProject(project)
-        configureIdeaModule(project)
-        configureForJavaPlugin(project)
-        configureForScalaPlugin()
-
-        hookDeduplicationToTheRoot(project)
     }
 
     public IdeaModel getModel() {
@@ -76,10 +57,29 @@ class IdeaPlugin extends IdePlugin {
             // for the project
             // Uncomment the following line and comment out the one below it
             // to try it out
-            //_model.module.sourceDirs = modules.collectMany { m -> m.sourceDirs }
-            _model.project.modules =  modules
+            //ideaModel.module.sourceDirs = modules.collectMany { m -> m.sourceDirs }
+            ideaModel.project.modules = modules
         }
-        _model
+        ideaModel
+    }
+
+    @Override protected String getLifecycleTaskName() {
+        return 'idea'
+    }
+
+    @Override protected void onApply(Project project) {
+        lifecycleTask.description = 'Generates IDEA project files (IML, IPR, IWS)'
+        cleanTask.description = 'Cleans IDEA project files (IML, IPR)'
+
+        ideaModel = project.extensions.create("idea", IdeaModel)
+
+        configureIdeaWorkspace(project)
+        configureIdeaProject(project)
+        configureIdeaModule(project)
+        configureForJavaPlugin(project)
+        configureForScalaPlugin()
+
+        hookDeduplicationToTheRoot(project)
     }
 
     static class SoftwareModelRules extends RuleSource {
@@ -137,7 +137,7 @@ class IdeaPlugin extends IdePlugin {
         if (isRoot(project)) {
             def task = project.task('ideaWorkspace', description: 'Generates an IDEA workspace file (IWS)', type: GenerateIdeaWorkspace) {
                 workspace = new IdeaWorkspace(iws: new XmlFileContentMerger(xmlTransformer))
-                _model.workspace = workspace
+                ideaModel.workspace = workspace
                 outputFile = new File(project.projectDir, project.name + ".iws")
             }
             addWorker(task, false)
@@ -150,7 +150,7 @@ class IdeaPlugin extends IdePlugin {
                 def ipr = new XmlFileContentMerger(xmlTransformer)
                 ideaProject = instantiator.newInstance(IdeaProject, project, ipr)
 
-                _model.project = ideaProject
+                ideaModel.project = ideaProject
 
                 ideaProject.outputFile = new File(project.projectDir, project.name + ".ipr")
                 ideaProject.conventionMapping.jdkName = { JavaVersion.current().toString() }
@@ -185,7 +185,7 @@ class IdeaPlugin extends IdePlugin {
             def iml = new IdeaModuleIml(xmlTransformer, project.projectDir)
             module = instantiator.newInstance(IdeaModule, project, iml)
 
-            _model.module = module
+            ideaModel.module = module
 
             module.conventionMapping.sourceDirs = { [] as LinkedHashSet }
             module.conventionMapping.name = { project.name }
