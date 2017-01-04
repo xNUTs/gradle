@@ -17,7 +17,12 @@
 package org.gradle.internal.service.scopes
 
 import org.gradle.StartParameter
-import org.gradle.api.internal.*
+import org.gradle.api.internal.ClassGenerator
+import org.gradle.api.internal.DocumentationRegistry
+import org.gradle.api.internal.ExceptionAnalyser
+import org.gradle.api.internal.GradleInternal
+import org.gradle.api.internal.SettingsInternal
+import org.gradle.api.internal.ThreadGlobalInstantiator
 import org.gradle.api.internal.artifacts.DependencyManagementServices
 import org.gradle.api.internal.classpath.DefaultModuleRegistry
 import org.gradle.api.internal.classpath.ModuleRegistry
@@ -25,26 +30,56 @@ import org.gradle.api.internal.classpath.PluginModuleRegistry
 import org.gradle.api.internal.file.FileLookup
 import org.gradle.api.internal.file.FileResolver
 import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory
+import org.gradle.api.internal.hash.FileHasher
 import org.gradle.api.internal.initialization.loadercache.ClassLoaderCache
-import org.gradle.api.internal.project.*
+import org.gradle.api.internal.project.DefaultProjectRegistry
+import org.gradle.api.internal.project.IProjectFactory
+import org.gradle.api.internal.project.IsolatedAntBuilder
+import org.gradle.api.internal.project.ProjectFactory
+import org.gradle.api.internal.project.ProjectInternal
+import org.gradle.api.internal.project.ProjectRegistry
 import org.gradle.api.internal.project.antbuilder.DefaultIsolatedAntBuilder
-import org.gradle.cache.CacheRepository
+import org.gradle.api.logging.configuration.LoggingConfiguration
 import org.gradle.cache.internal.CacheFactory
-import org.gradle.configuration.*
+import org.gradle.configuration.BuildConfigurer
+import org.gradle.configuration.DefaultBuildConfigurer
+import org.gradle.configuration.ImportsReader
+import org.gradle.configuration.ScriptPluginFactory
+import org.gradle.configuration.ScriptPluginFactorySelector
 import org.gradle.groovy.scripts.DefaultScriptCompilerFactory
 import org.gradle.groovy.scripts.ScriptCompilerFactory
-import org.gradle.initialization.*
+import org.gradle.groovy.scripts.internal.CrossBuildInMemoryCachingScriptClassCache
+import org.gradle.initialization.BuildCancellationToken
+import org.gradle.initialization.BuildLoader
+import org.gradle.initialization.BuildRequestMetaData
+import org.gradle.initialization.ClassLoaderRegistry
+import org.gradle.initialization.DefaultExceptionAnalyser
+import org.gradle.initialization.DefaultGradlePropertiesLoader
+import org.gradle.initialization.IGradlePropertiesLoader
+import org.gradle.initialization.InitScriptHandler
+import org.gradle.initialization.MultipleBuildFailuresExceptionAnalyser
+import org.gradle.initialization.NotifyingSettingsProcessor
+import org.gradle.initialization.ProjectPropertySettingBuildLoader
+import org.gradle.initialization.SettingsProcessor
+import org.gradle.initialization.StackTraceSanitizingExceptionAnalyser
 import org.gradle.internal.Factory
 import org.gradle.internal.classloader.ClassLoaderFactory
+import org.gradle.internal.classloader.ClassLoaderHierarchyHasher
+import org.gradle.internal.classloader.ClassPathSnapshotter
 import org.gradle.internal.event.DefaultListenerManager
 import org.gradle.internal.event.ListenerManager
+import org.gradle.internal.installation.CurrentGradleInstallation
+import org.gradle.internal.installation.GradleInstallation
+import org.gradle.internal.logging.LoggingManagerInternal
+import org.gradle.internal.logging.progress.ProgressLoggerFactory
 import org.gradle.internal.operations.logging.BuildOperationLoggerFactory
 import org.gradle.internal.operations.logging.DefaultBuildOperationLoggerFactory
+import org.gradle.internal.progress.BuildOperationExecutor
 import org.gradle.internal.reflect.Instantiator
-import org.gradle.logging.LoggingConfiguration
-import org.gradle.logging.LoggingManagerInternal
-import org.gradle.logging.ProgressLoggerFactory
 import org.gradle.model.internal.inspect.ModelRuleSourceDetector
+import org.gradle.plugin.repository.internal.PluginRepositoryFactory
+import org.gradle.plugin.repository.internal.PluginRepositoryRegistry
+import org.gradle.plugin.use.internal.InjectedPluginClasspath
 import org.gradle.plugin.use.internal.PluginRequestApplicator
 import org.gradle.profile.ProfileEventAdapter
 import spock.lang.Specification
@@ -67,7 +102,7 @@ public class BuildScopeServicesTest extends Specification {
         cacheFactoryFactory.create() >> cacheFactory
         sessionServices.get(ClassLoaderRegistry) >> classLoaderRegistry
         sessionServices.getFactory(LoggingManagerInternal) >> Stub(Factory)
-        sessionServices.get(ModuleRegistry) >> new DefaultModuleRegistry()
+        sessionServices.get(ModuleRegistry) >> new DefaultModuleRegistry(CurrentGradleInstallation.get())
         sessionServices.get(PluginModuleRegistry) >> Stub(PluginModuleRegistry)
         sessionServices.get(DependencyManagementServices) >> Stub(DependencyManagementServices)
         sessionServices.get(Instantiator) >> ThreadGlobalInstantiator.getOrCreate()
@@ -82,9 +117,16 @@ public class BuildScopeServicesTest extends Specification {
         sessionServices.get(ClassLoaderCache) >> Mock(ClassLoaderCache)
         sessionServices.get(ImportsReader) >> Mock(ImportsReader)
         sessionServices.get(StartParameter) >> startParameter
+        sessionServices.get(FileHasher) >> Mock(FileHasher)
+        sessionServices.get(ClassPathSnapshotter) >> Mock(ClassPathSnapshotter)
+        sessionServices.get(ClassLoaderHierarchyHasher) >> Mock(ClassLoaderHierarchyHasher)
+        sessionServices.get(CrossBuildInMemoryCachingScriptClassCache) >> Mock(CrossBuildInMemoryCachingScriptClassCache)
+        sessionServices.get(InjectedPluginClasspath) >> Mock(InjectedPluginClasspath)
+        sessionServices.get(PluginRepositoryRegistry) >> Mock(PluginRepositoryRegistry)
+        sessionServices.get(PluginRepositoryFactory) >> Mock(PluginRepositoryFactory)
         sessionServices.getAll(_) >> []
 
-        registry = new BuildScopeServices(sessionServices, false)
+        registry = new BuildScopeServices(sessionServices, startParameter)
     }
 
     def cleanup() {
@@ -109,7 +151,7 @@ public class BuildScopeServicesTest extends Specification {
         }
 
         when:
-        new BuildScopeServices(sessionServices, false)
+        new BuildScopeServices(sessionServices, startParameter)
 
         then:
         1 * plugin1.registerBuildServices(_)
@@ -169,7 +211,7 @@ public class BuildScopeServicesTest extends Specification {
     def providesAScriptCompilerFactory() {
         setup:
         expectListenerManagerCreated()
-        expectParentServiceLocated(CacheRepository)
+        expectParentServiceLocated(CacheFactory)
 
         expect:
         registry.get(ScriptCompilerFactory) instanceof DefaultScriptCompilerFactory
@@ -179,8 +221,9 @@ public class BuildScopeServicesTest extends Specification {
     def providesAnInitScriptHandler() {
         setup:
         expectListenerManagerCreated()
-        allowGetGradleDistributionLocator()
-        expectParentServiceLocated(CacheRepository)
+        allowGetGradleInstallation()
+        expectParentServiceLocated(BuildOperationExecutor)
+        expectParentServiceLocated(CacheFactory)
 
         expect:
         registry.get(InitScriptHandler) instanceof InitScriptHandler
@@ -190,17 +233,18 @@ public class BuildScopeServicesTest extends Specification {
     def providesAScriptObjectConfigurerFactory() {
         setup:
         expectListenerManagerCreated()
-        expectParentServiceLocated(CacheRepository)
+        expectParentServiceLocated(CacheFactory)
 
         expect:
-        assertThat(registry.get(ScriptPluginFactory), instanceOf(DefaultScriptPluginFactory))
+        assertThat(registry.get(ScriptPluginFactory), instanceOf(ScriptPluginFactorySelector))
         assertThat(registry.get(ScriptPluginFactory), sameInstance(registry.get(ScriptPluginFactory)))
     }
 
     def providesASettingsProcessor() {
         setup:
         expectListenerManagerCreated()
-        expectParentServiceLocated(CacheRepository)
+        expectParentServiceLocated(CacheFactory)
+        expectParentServiceLocated(BuildOperationExecutor)
 
         expect:
         assertThat(registry.get(SettingsProcessor), instanceOf(NotifyingSettingsProcessor))
@@ -287,14 +331,6 @@ public class BuildScopeServicesTest extends Specification {
         operationLoggerFactory instanceof DefaultBuildOperationLoggerFactory
     }
 
-    def "closes session when single use"() {
-        when:
-        new BuildScopeServices(sessionServices, true).close()
-
-        then:
-        1 * sessionServices.close()
-    }
-
     private <T> T expectParentServiceLocated(Class<T> type) {
         T t = Mock(type)
         sessionServices.get(type) >> t
@@ -309,8 +345,8 @@ public class BuildScopeServicesTest extends Specification {
         listenerManager
     }
 
-    private void allowGetGradleDistributionLocator() {
-        sessionServices.get(GradleDistributionLocator) >> Mock(GradleDistributionLocator)
+    private void allowGetGradleInstallation() {
+        sessionServices.get(GradleInstallation) >> Mock(GradleInstallation)
     }
 
     public interface ClosableCacheFactory extends CacheFactory {

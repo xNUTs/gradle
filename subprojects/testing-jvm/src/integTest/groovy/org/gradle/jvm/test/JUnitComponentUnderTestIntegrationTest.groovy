@@ -17,8 +17,6 @@
 package org.gradle.jvm.test
 
 import org.gradle.integtests.fixtures.DefaultTestExecutionResult
-import org.gradle.util.Requires
-import org.gradle.util.TestPrecondition
 
 class JUnitComponentUnderTestIntegrationTest extends AbstractJUnitTestExecutionIntegrationSpec {
 
@@ -152,7 +150,6 @@ class JUnitComponentUnderTestIntegrationTest extends AbstractJUnitTestExecutionI
         outputContains 'myTestGreeterJarBinaryTest - Runs test suite \'myTest:greeterJarBinary\'.'
     }
 
-    @Requires(TestPrecondition.JDK7_OR_LATER)
     def "one test suite binary is created for each variant of component under test"() {
         given:
         applyJUnitPlugin()
@@ -183,6 +180,41 @@ class JUnitComponentUnderTestIntegrationTest extends AbstractJUnitTestExecutionI
             .assertTestCount(1, 0, 0)
             .assertTestsExecuted('testGreeting')
 
+    }
+
+    def "junit test run task is properly wired to binaries check tasks and lifecycle check task"() {
+        given:
+        applyJUnitPlugin()
+        greeterLibrary()
+        myTestSuiteSpec('greeter')
+        greeterTestCase()
+        buildFile << '''
+            task customGreeterCheck()
+            model {
+                components {
+                    greeter {
+                        binaries.all {
+                            checkedBy($.tasks.customGreeterCheck)
+                        }
+                    }
+                }
+            }
+        '''.stripIndent()
+
+        when:
+        succeeds 'check'
+        then:
+        executed ':customGreeterCheck', ':checkGreeterJar', ':checkMyTestGreeterJarBinary', ':myTestGreeterJarBinaryTest'
+
+        when:
+        run 'checkMyTestGreeterJarBinary'
+        then:
+        executed ':myTestGreeterJarBinaryTest'
+
+        when:
+        run 'checkGreeterJar'
+        then:
+        executed ':customGreeterCheck', ':myTestGreeterJarBinaryTest'
     }
 
     private void greeterLibrary() {

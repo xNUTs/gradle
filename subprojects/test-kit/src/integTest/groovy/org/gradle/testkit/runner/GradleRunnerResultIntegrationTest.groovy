@@ -16,16 +16,15 @@
 
 package org.gradle.testkit.runner
 
-import org.gradle.testkit.runner.fixtures.annotations.InspectsBuildOutput
-import org.gradle.testkit.runner.fixtures.annotations.InspectsExecutedTasks
+import org.gradle.testkit.runner.fixtures.InspectsExecutedTasks
+import org.gradle.testkit.runner.fixtures.WithNoSourceTaskOutcome
 
 import static org.gradle.testkit.runner.TaskOutcome.*
-
 /**
  * Tests more intricate aspects of the BuildResult object
  */
 @InspectsExecutedTasks
-class GradleRunnerResultIntegrationTest extends GradleRunnerIntegrationTest {
+class GradleRunnerResultIntegrationTest extends BaseGradleRunnerIntegrationTest {
 
     def "execute task actions marked as up-to-date or skipped"() {
         given:
@@ -48,27 +47,51 @@ class GradleRunnerResultIntegrationTest extends GradleRunnerIntegrationTest {
         result.taskPaths(SUCCESS) == []
         result.taskPaths(SKIPPED) == [':byeWorld']
         result.taskPaths(UP_TO_DATE) == [':helloWorld']
+        result.taskPaths(FROM_CACHE).empty
         result.taskPaths(FAILED).empty
     }
 
-    @InspectsBuildOutput
-    def "executed buildSrc tasks are not part of tasks in result object"() {
+    @WithNoSourceTaskOutcome
+    def "executed tasks with no inputs are marked with no-source"() {
         given:
-        file('buildSrc').mkdirs()
-        buildFile << helloWorldTask()
+        buildFile << """
+           task empty {
+                inputs.files(project.files()).skipWhenEmpty()
+                doLast{}
+           }
+        """
 
         when:
-        def result = runner('helloWorld')
+        def result = runner('empty')
             .build()
 
         then:
-        result.output.contains(':buildSrc:compileJava UP-TO-DATE')
-        result.output.contains(':buildSrc:build')
-        result.tasks.collect { it.path } == [':helloWorld']
-        result.taskPaths(SUCCESS) == [':helloWorld']
-        result.taskPaths(SKIPPED).empty
-        result.taskPaths(UP_TO_DATE).empty
-        result.taskPaths(FAILED).empty
+        result.tasks.collect { it.path } == [':empty']
+        result.taskPaths(SUCCESS) == []
+        result.taskPaths(NO_SOURCE) == [':empty']
+    }
+
+
+    def "executed buildSrc tasks are not part of tasks in result object"() {
+        given:
+        file('buildSrc/src/main/groovy/pkg/Message.groovy') << """
+            package pkg
+            class Message { public static final String MSG = "::msg::" }
+        """
+        buildScript """
+            task echoMsg {
+                doLast {
+                    println pkg.Message.MSG
+                }
+            }
+        """
+
+        when:
+        def result = runner('echoMsg')
+            .build()
+
+        then:
+        result.tasks.path == [':echoMsg']
     }
 
     def "task order represents execution order"() {
@@ -78,15 +101,19 @@ class GradleRunnerResultIntegrationTest extends GradleRunnerIntegrationTest {
             def startLatch = new java.util.concurrent.CountDownLatch(1)
             def stopLatch = new java.util.concurrent.CountDownLatch(1)
             project(":a") {
-              task t << {
-                startLatch.countDown() // allow b to finish
-                stopLatch.await() // wait for d to start
+              task t {
+                doLast {
+                  startLatch.countDown() // allow b to finish
+                  stopLatch.await() // wait for d to start
+                }
               }
             }
 
             project(":b") {
-              task t << {
-                startLatch.await() // wait for a to start
+              task t {
+                doLast {
+                  startLatch.await() // wait for a to start
+                }
               }
             }
 

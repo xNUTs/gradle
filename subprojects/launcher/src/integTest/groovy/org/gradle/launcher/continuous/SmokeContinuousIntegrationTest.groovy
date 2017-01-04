@@ -20,6 +20,8 @@ import org.gradle.internal.environment.GradleBuildEnvironment
 import org.gradle.internal.os.OperatingSystem
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
+import spock.lang.Ignore
+import spock.lang.Issue
 
 class SmokeContinuousIntegrationTest extends Java7RequiringContinuousIntegrationTest {
     def setup() {
@@ -37,7 +39,7 @@ class SmokeContinuousIntegrationTest extends Java7RequiringContinuousIntegration
 
         buildFile << """
             task echo {
-              inputs.files file("marker")
+              inputs.files "marker"
               doLast {
                 println "value: " + file("marker").text
               }
@@ -63,7 +65,6 @@ class SmokeContinuousIntegrationTest extends Java7RequiringContinuousIntegration
         def markerFile = file("marker")
 
         when:
-        executer.withStackTraceChecksDisabled()
         buildFile << """
             task build {
               def f = file("marker")
@@ -297,7 +298,7 @@ class SmokeContinuousIntegrationTest extends Java7RequiringContinuousIntegration
         when:
         buildScript """
             task build {
-              inputs.source fileTree("source")
+              inputs.files(fileTree("source")).skipWhenEmpty()
               inputs.files fileTree("ancillary")
               doLast {}
             }
@@ -325,11 +326,24 @@ class SmokeContinuousIntegrationTest extends Java7RequiringContinuousIntegration
         succeeds()
     }
 
+    @Ignore("This goes into a continuous loop since .gradle files change")
     def "project directory can be used as input"() {
         given:
         def aFile = file("A")
         buildFile << """
+        task before {
+            def outputFile = new File(buildDir, "output.txt")
+            outputs.file outputFile
+            outputs.upToDateWhen { false }
+
+            doLast {
+                outputFile.parentFile.mkdirs()
+                outputFile.text = "OK"
+            }
+        }
+
         task a {
+            dependsOn before
             inputs.dir projectDir
             doLast {}
         }
@@ -381,6 +395,45 @@ class SmokeContinuousIntegrationTest extends Java7RequiringContinuousIntegration
         then:
         succeeds "a"
         output.endsWith("(ctrl-d then enter to exit)\n")
+    }
+
+    @Issue("GRADLE-3415")
+    def "watches for changes when some task has a single input file in the parent directory of another task's input directory"() {
+        given:
+        def topLevelFile = file("src/topLevel.txt").createFile()
+        def nestedFile = file("src/subdirectory/nested.txt").createFile()
+        buildFile << """
+        task inner {
+            inputs.file "src/topLevel.txt"
+            doLast {}
+        }
+
+        task outer {
+            dependsOn inner
+            inputs.dir "src"
+            doLast {}
+        }
+        """
+
+        expect:
+        succeeds("outer")
+        executedAndNotSkipped(":inner", ":outer")
+
+        when:
+        waitBeforeModification(topLevelFile)
+        topLevelFile.text = "hello"
+
+        then:
+        succeeds()
+        executedAndNotSkipped(":inner", ":outer")
+
+        when: "file is changed"
+        waitBeforeModification(nestedFile)
+        nestedFile.text = "B"
+
+        then:
+        succeeds()
+        executedAndNotSkipped(":outer")
     }
 
 }

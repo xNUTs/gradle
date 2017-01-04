@@ -22,7 +22,7 @@ import org.gradle.api.artifacts.ConfigurationContainer;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.ResolveException;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
-import org.gradle.api.internal.tasks.compile.daemon.CompilerDaemonManager;
+import org.gradle.process.internal.daemon.WorkerDaemonManager;
 import org.gradle.language.scala.ScalaPlatform;
 import org.gradle.platform.base.internal.toolchain.ToolProvider;
 
@@ -32,12 +32,12 @@ import java.util.Set;
 public class DownloadingScalaToolChain implements ScalaToolChainInternal {
     private final File gradleUserHomeDir;
     private final File rootProjectDir;
-    private final CompilerDaemonManager compilerDaemonManager;
+    private final WorkerDaemonManager compilerDaemonManager;
     private final ConfigurationContainer configurationContainer;
     private final DependencyHandler dependencyHandler;
     private final JavaVersion javaVersion;
 
-    public DownloadingScalaToolChain(File gradleUserHomeDir, File rootProjectDir, CompilerDaemonManager compilerDaemonManager, ConfigurationContainer configurationContainer, DependencyHandler dependencyHandler) {
+    public DownloadingScalaToolChain(File gradleUserHomeDir, File rootProjectDir, WorkerDaemonManager compilerDaemonManager, ConfigurationContainer configurationContainer, DependencyHandler dependencyHandler) {
         this.gradleUserHomeDir = gradleUserHomeDir;
         this.rootProjectDir = rootProjectDir;
         this.compilerDaemonManager = compilerDaemonManager;
@@ -46,18 +46,21 @@ public class DownloadingScalaToolChain implements ScalaToolChainInternal {
         this.javaVersion = JavaVersion.current();
     }
 
+    @Override
     public String getName() {
-        return String.format("Scala Toolchain");
+        return "Scala Toolchain";
     }
 
+    @Override
     public String getDisplayName() {
-        return String.format("Scala Toolchain (JDK %s (%s))", javaVersion.getMajorVersion(), javaVersion);
+        return "Scala Toolchain (JDK " + javaVersion.getMajorVersion() + " (" + javaVersion + "))";
     }
 
+    @Override
     public ToolProvider select(ScalaPlatform targetPlatform) {
         try {
-            Configuration scalaClasspath = resolveDependency(String.format("org.scala-lang:scala-compiler:%s", targetPlatform.getScalaVersion()));
-            Configuration zincClasspath = resolveDependency(String.format("com.typesafe.zinc:zinc:%s", DefaultScalaToolProvider.DEFAULT_ZINC_VERSION));
+            Configuration scalaClasspath = resolveDependency("org.scala-lang:scala-compiler:" + targetPlatform.getScalaVersion());
+            Configuration zincClasspath = resolveDependency("com.typesafe.zinc:zinc:" + DefaultScalaToolProvider.DEFAULT_ZINC_VERSION);
             Set<File> resolvedScalaClasspath = scalaClasspath.resolve();
             Set<File> resolvedZincClasspath = zincClasspath.resolve();
             return new DefaultScalaToolProvider(gradleUserHomeDir, rootProjectDir, compilerDaemonManager, resolvedScalaClasspath, resolvedZincClasspath);

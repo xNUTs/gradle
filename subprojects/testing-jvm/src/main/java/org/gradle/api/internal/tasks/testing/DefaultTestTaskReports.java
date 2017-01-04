@@ -22,7 +22,7 @@ import org.gradle.api.reporting.DirectoryReport;
 import org.gradle.api.reporting.Report;
 import org.gradle.api.reporting.internal.TaskGeneratedSingleDirectoryReport;
 import org.gradle.api.reporting.internal.TaskReportContainer;
-import org.gradle.api.tasks.Nested;
+import org.gradle.api.tasks.testing.JUnitXmlReport;
 import org.gradle.api.tasks.testing.TestTaskReports;
 
 public class DefaultTestTaskReports extends TaskReportContainer<Report> implements TestTaskReports {
@@ -34,13 +34,14 @@ public class DefaultTestTaskReports extends TaskReportContainer<Report> implemen
         add(TaskGeneratedSingleDirectoryReport.class, "html", task, "index.html");
     }
 
+    @Override
     public DirectoryReport getHtml() {
         return (DirectoryReport) getByName("html");
     }
 
-    @Nested
-    public DefaultJUnitXmlReport getJunitXml() {
-        return (DefaultJUnitXmlReport) getByName("junitXml");
+    @Override
+    public JUnitXmlReport getJunitXml() {
+        return (JUnitXmlReport) getByName("junitXml");
     }
 
 }

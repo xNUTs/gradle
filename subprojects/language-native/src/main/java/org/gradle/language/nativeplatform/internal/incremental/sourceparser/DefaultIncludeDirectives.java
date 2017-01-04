@@ -15,23 +15,23 @@
  */
 package org.gradle.language.nativeplatform.internal.incremental.sourceparser;
 
+import com.google.common.collect.ImmutableList;
 import org.gradle.api.specs.Spec;
 import org.gradle.language.nativeplatform.internal.Include;
-import org.gradle.language.nativeplatform.internal.IncludeType;
 import org.gradle.language.nativeplatform.internal.IncludeDirectives;
+import org.gradle.language.nativeplatform.internal.IncludeType;
 import org.gradle.util.CollectionUtils;
 
-import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.List;
 
-public class DefaultIncludeDirectives implements IncludeDirectives, Serializable {
-    private final List<Include> allIncludes = new ArrayList<Include>();
+public class DefaultIncludeDirectives implements IncludeDirectives {
+    private final ImmutableList<Include> allIncludes;
 
-    public void addAll(List<Include> includes) {
-        this.allIncludes.addAll(includes);
+    public DefaultIncludeDirectives(List<Include> allIncludes) {
+        this.allIncludes = ImmutableList.copyOf(allIncludes);
     }
 
+    @Override
     public List<Include> getQuotedIncludes() {
         return CollectionUtils.filter(allIncludes, new Spec<Include>() {
             @Override
@@ -41,6 +41,7 @@ public class DefaultIncludeDirectives implements IncludeDirectives, Serializable
         });
     }
 
+    @Override
     public List<Include> getSystemIncludes() {
         return CollectionUtils.filter(allIncludes, new Spec<Include>() {
             @Override
@@ -50,6 +51,7 @@ public class DefaultIncludeDirectives implements IncludeDirectives, Serializable
         });
     }
 
+    @Override
     public List<Include> getMacroIncludes() {
         return CollectionUtils.filter(allIncludes, new Spec<Include>() {
             @Override
@@ -59,10 +61,12 @@ public class DefaultIncludeDirectives implements IncludeDirectives, Serializable
         });
     }
 
+    @Override
     public List<Include> getIncludesAndImports() {
         return allIncludes;
     }
 
+    @Override
     public List<Include> getIncludesOnly() {
         return CollectionUtils.filter(allIncludes, new Spec<Include>() {
             @Override

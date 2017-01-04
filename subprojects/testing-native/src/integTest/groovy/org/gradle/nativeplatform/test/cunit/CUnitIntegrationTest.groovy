@@ -18,25 +18,23 @@ package org.gradle.nativeplatform.test.cunit
 import org.gradle.api.reporting.model.ModelReportOutput
 import org.gradle.ide.visualstudio.fixtures.ProjectFile
 import org.gradle.ide.visualstudio.fixtures.SolutionFile
-import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
 import org.gradle.internal.os.OperatingSystem
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
-import org.gradle.nativeplatform.fixtures.AvailableToolChains
 import org.gradle.nativeplatform.fixtures.app.CHelloWorldApp
-import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 import org.gradle.util.TextUtil
 import spock.lang.Issue
 
 @Requires(TestPrecondition.CAN_INSTALL_EXECUTABLE)
-@LeaksFileHandles
 class CUnitIntegrationTest extends AbstractInstalledToolChainIntegrationSpec {
 
-    def prebuiltPath = TextUtil.normaliseFileSeparators(new IntegrationTestBuildContext().getSamplesDir().file("native-binaries/cunit/libs").path)
+    def prebuiltDir = buildContext.getSamplesDir().file("native-binaries/cunit/libs")
+    def prebuiltPath = TextUtil.normaliseFileSeparators(prebuiltDir.path)
     def app = new CHelloWorldApp()
 
     def setup() {
+        prebuiltDir.file("cunit/2.1-2/lib/${toolChain.unitTestPlatform}/${cunitLibName}").assumeExists()
         buildFile << """
 apply plugin: 'cunit-test-suite'
 
@@ -46,7 +44,7 @@ model {
             cunit {
                 headers.srcDir "${prebuiltPath}/cunit/2.1-2/include"
                 binaries.withType(StaticLibraryBinary) {
-                    staticLibraryFile = file("${prebuiltPath}/cunit/2.1-2/lib/${cunitPlatform}/${cunitLibName}")
+                    staticLibraryFile = file("${prebuiltPath}/cunit/2.1-2/lib/${toolChain.unitTestPlatform}/${cunitLibName}")
                 }
             }
         }
@@ -81,31 +79,6 @@ model {
     }
 }
 """
-    }
-
-    private def getCunitPlatform() {
-        if (OperatingSystem.current().isMacOsX()) {
-            return "osx"
-        }
-        if (OperatingSystem.current().isLinux()) {
-            return "linux"
-        }
-        if (toolChain.displayName == "mingw") {
-            return "mingw"
-        }
-        if (toolChain.displayName == "gcc cygwin") {
-            return "cygwin"
-        }
-        if (toolChain.visualCpp) {
-            def vcVersion = (toolChain as AvailableToolChains.InstalledVisualCpp).version
-            switch (vcVersion.major) {
-                case "12":
-                    return "vs2013"
-                case "10":
-                    return "vs2010"
-            }
-        }
-        throw new IllegalStateException("No cunit binary available for ${toolChain.displayName}")
     }
 
     private def getCunitLibName() {
@@ -152,7 +125,7 @@ model {
         useConventionalSourceLocations()
         useStandardConfig()
         buildFile << "apply plugin: 'cpp'"
-        file("src/hello/cpp").createDir().file("foo.cpp").text = "class foobar { };"
+        file("src/hello/cpp/foo.cpp").text = "class foobar { };"
 
         when:
         run "check"
@@ -502,6 +475,69 @@ tasks.withType(RunTestExecutable) {
         with(projectFile.projectConfigurations['debug']) {
             includePath == "src/helloTest/headers;build/src/helloTest/cunitLauncher/headers;src/hello/headers;${prebuiltPath}/cunit/2.1-2/include"
         }
+    }
+
+    def "non-buildable binaries are not attached to check task"() {
+        given:
+        useConventionalSourceLocations()
+        useStandardConfig()
+        buildFile << """
+model {
+    components {
+        unbuildable(NativeLibrarySpec)
+    }
+    testSuites {
+        unbuildableTest(CUnitTestSuiteSpec) {
+            testing \$.components.unbuildable
+        }
+    }
+    binaries {
+        unbuildableTestCUnitExe {
+            buildable = false
+        }
+    }
+}
+"""
+
+        when:
+        run "check"
+
+        then:
+        notExecuted ":runUnbuildableTestCUnitExe"
+        executedAndNotSkipped ":runHelloTestCUnitExe"
+    }
+
+    def "cunit run task is properly wired to binaries check tasks and lifecycle check task"() {
+        given:
+        useStandardConfig()
+        useConventionalSourceLocations()
+        buildFile << '''
+            task customHelloCheck()
+            model {
+                components {
+                    hello {
+                        binaries.all {
+                            checkedBy($.tasks.customHelloCheck)
+                        }
+                    }
+                }
+            }
+        '''.stripIndent()
+
+        when:
+        succeeds 'check'
+        then:
+        executed ':customHelloCheck', ':checkHelloSharedLibrary', ':checkHelloStaticLibrary', ':checkHelloTestCUnitExe', ':runHelloTestCUnitExe'
+
+        when:
+        succeeds 'checkHelloTestCUnitExe'
+        then:
+        executed ':runHelloTestCUnitExe'
+
+        when:
+        succeeds 'checkHelloStaticLibrary'
+        then:
+        executed ':customHelloCheck', ':runHelloTestCUnitExe'
     }
 
     private useConventionalSourceLocations() {

@@ -16,7 +16,7 @@
 
 package org.gradle.language.nativeplatform.internal.incremental;
 
-import org.gradle.api.internal.changedetection.state.TaskArtifactStateCacheAccess;
+import org.gradle.api.internal.changedetection.state.TaskHistoryStore;
 import org.gradle.cache.PersistentIndexedCache;
 import org.gradle.cache.PersistentStateCache;
 
@@ -24,10 +24,11 @@ public class DefaultCompilationStateCacheFactory implements CompilationStateCach
 
     private final PersistentIndexedCache<String, CompilationState> compilationStateIndexedCache;
 
-    public DefaultCompilationStateCacheFactory(TaskArtifactStateCacheAccess cacheAccess) {
+    public DefaultCompilationStateCacheFactory(TaskHistoryStore cacheAccess) {
         compilationStateIndexedCache = cacheAccess.createCache("compilationState", String.class, new CompilationStateSerializer());
     }
 
+    @Override
     public PersistentStateCache<CompilationState> create(final String taskPath) {
         return new PersistentCompilationStateCache(taskPath, compilationStateIndexedCache);
     }
@@ -41,14 +42,17 @@ public class DefaultCompilationStateCacheFactory implements CompilationStateCach
             this.compilationStateIndexedCache = compilationStateIndexedCache;
         }
 
+        @Override
         public CompilationState get() {
             return compilationStateIndexedCache.get(taskPath);
         }
 
+        @Override
         public void set(CompilationState newValue) {
             compilationStateIndexedCache.put(taskPath, newValue);
         }
 
+        @Override
         public void update(UpdateAction<CompilationState> updateAction) {
             throw new UnsupportedOperationException();
         }

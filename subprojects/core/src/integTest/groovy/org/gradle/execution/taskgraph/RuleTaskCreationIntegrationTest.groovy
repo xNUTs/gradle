@@ -57,7 +57,7 @@ class RuleTaskCreationIntegrationTest extends AbstractIntegrationSpec implements
         """
 
         when:
-        succeeds "tasks"
+        succeeds "tasks", "--all"
 
         then:
         output.contains "a - task a"
@@ -84,7 +84,7 @@ class RuleTaskCreationIntegrationTest extends AbstractIntegrationSpec implements
         """
 
         when:
-        succeeds "tasks"
+        succeeds "tasks", "--all"
 
         then:
         output.contains "a - task a"
@@ -461,8 +461,8 @@ foo configured
         fails "tasks"
 
         then:
-        failure.assertHasCause("Exception thrown while executing model rule: MyPlugin#addTasks2")
-        failure.assertHasCause("Cannot create 'tasks.a' using creation rule 'MyPlugin#addTasks2 > create(a)' as the rule 'MyPlugin#addTasks1 > create(a)' is already registered to create this model element.")
+        failure.assertHasCause("Exception thrown while executing model rule: MyPlugin#addTasks2(ModelMap<Task>, MyModel)")
+        failure.assertHasCause("Cannot create 'tasks.a' using creation rule 'MyPlugin#addTasks2(ModelMap<Task>, MyModel) > create(a)' as the rule 'MyPlugin#addTasks1(ModelMap<Task>, MyModel) > create(a)' is already registered to create this model element.")
     }
 
     def "cannot create tasks during config of task"() {
@@ -484,8 +484,8 @@ foo configured
         fails "tasks"
 
         then:
-        failure.assertHasCause("Exception thrown while executing model rule: MyPlugin#addTasks > create(foo)")
-        failure.assertHasCause("Attempt to mutate closed view of model of type 'org.gradle.model.ModelMap<org.gradle.api.Task>' given to rule 'MyPlugin#addTasks'")
+        failure.assertHasCause("Exception thrown while executing model rule: MyPlugin#addTasks(ModelMap<Task>) > create(foo)")
+        failure.assertHasCause("Attempt to modify a closed view of model element 'tasks' of type 'ModelMap<Task>' given to rule MyPlugin#addTasks(ModelMap<Task>)")
     }
 
     def "failure during task instantiation is reasonably reported"() {
@@ -511,7 +511,7 @@ foo configured
         fails "tasks"
 
         then:
-        failure.assertHasCause("Exception thrown while executing model rule: MyPlugin#addTasks > create(foo)")
+        failure.assertHasCause("Exception thrown while executing model rule: MyPlugin#addTasks(ModelMap<Task>) > create(foo)")
         failure.assertHasCause("Could not create task of type 'Faulty'")
     }
 
@@ -583,7 +583,7 @@ foo configured
         buildFile << """
 tasks.create(name: 'taskContainerTask', type: DefaultTask) { }
 
-task standardTask << {}
+task standardTask
 
 model {
   tasks {

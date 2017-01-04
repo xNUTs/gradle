@@ -20,25 +20,19 @@ import org.gradle.integtests.fixtures.executer.ForkingGradleExecuter
 import org.gradle.integtests.fixtures.executer.GradleBackedArtifactBuilder
 import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
-import org.gradle.integtests.tooling.fixture.ToolingApiVersion
-import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.tooling.BuildAction
 import org.gradle.tooling.BuildController
 import org.gradle.tooling.ProjectConnection
 
-@ToolingApiVersion(">=1.8")
-class BuildActionCrossVersionSpec extends ToolingApiSpecification {
-    def setup() {
-        // disable URL caching
-        // sun.net.www.protocol.jar.JarURLConnection leaves the JarFile instance open if URLConnection caching is enabled.
-        new URL("jar:file://valid_jar_url_syntax.jar!/").openConnection().setDefaultUseCaches(false)
-    }
+import java.nio.file.Files
 
+class BuildActionCrossVersionSpec extends ToolingApiSpecification {
     @TargetGradleVersion(">=2.2")
-    @LeaksFileHandles("cl1 and cl2 hold action-impl.jar open")
     def "can change the implementation of an action"() {
         // Make sure we reuse the same daemon
         toolingApi.requireIsolatedDaemons()
+
+        disableJarCachingWhenUsingOldGradleVersion()
 
         def workDir = temporaryFolder.file("work")
         def implJar = workDir.file("action-impl.jar")
@@ -57,6 +51,7 @@ public class ActionImpl implements ${BuildAction.name}<java.io.File> {
 }
 """
         builder.buildJar(implJar)
+
         def cl1 = new URLClassLoader([implJar.toURI().toURL()] as URL[], getClass().classLoader)
         def action1 = cl1.loadClass("ActionImpl").newInstance()
 
@@ -64,6 +59,8 @@ public class ActionImpl implements ${BuildAction.name}<java.io.File> {
         File actualJar1 = withConnection { ProjectConnection connection ->
             connection.action(action1).run()
         }
+        cl1.close()
+        Files.delete(implJar.toPath())
 
         then:
         actualJar1 != implJar
@@ -84,11 +81,25 @@ public class ActionImpl implements ${BuildAction.name}<String> {
         String result2 = withConnection { ProjectConnection connection ->
             connection.action(action2).run()
         }
-        def actualJar2 = new File(new URI(result2))
+        cl2.close()
+        Files.delete(implJar.toPath())
 
         then:
+        def actualJar2 = new File(new URI(result2))
         actualJar2 != implJar
         actualJar2 != actualJar1
         actualJar2.name == implJar.name
+
+        cleanup:
+        cl1?.close()
+        cl2?.close()
+    }
+
+    private void disableJarCachingWhenUsingOldGradleVersion() {
+        if (targetDist.toolingApiLocksBuildActionClasses) {
+            // Tooling api providers from older Gradle would use the Jar URL cache, leaving Jar files open. Disable URL caching for these versions
+            // sun.net.www.protocol.jar.JarURLConnection leaves the JarFile instance open if URLConnection caching is enabled.
+            new URL("jar:file://valid_jar_url_syntax.jar!/").openConnection().setDefaultUseCaches(false)
+        }
     }
 }

@@ -17,23 +17,33 @@
 package org.gradle.api.internal.tasks.compile.incremental.cache;
 
 import org.gradle.api.internal.tasks.compile.incremental.analyzer.ClassAnalysisCache;
+import org.gradle.api.internal.tasks.compile.incremental.analyzer.ClassNamesCache;
 import org.gradle.api.internal.tasks.compile.incremental.jar.JarSnapshotCache;
 
 public class DefaultGeneralCompileCaches implements GeneralCompileCaches {
 
     private final ClassAnalysisCache classAnalysisCache;
     private final JarSnapshotCache jarSnapshotCache;
+    private final ClassNamesCache classNameCache;
 
-    public DefaultGeneralCompileCaches(ClassAnalysisCache classAnalysisCache, JarSnapshotCache jarSnapshotCache) {
+    public DefaultGeneralCompileCaches(ClassAnalysisCache classAnalysisCache, JarSnapshotCache jarSnapshotCache, ClassNamesCache classNamesCache) {
         this.classAnalysisCache = classAnalysisCache;
         this.jarSnapshotCache = jarSnapshotCache;
+        this.classNameCache = classNamesCache;
     }
 
+    @Override
     public ClassAnalysisCache getClassAnalysisCache() {
         return classAnalysisCache;
     }
 
+    @Override
     public JarSnapshotCache getJarSnapshotCache() {
         return jarSnapshotCache;
+    }
+
+    @Override
+    public ClassNamesCache getClassNamesCache() {
+        return classNameCache;
     }
 }

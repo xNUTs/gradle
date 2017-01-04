@@ -43,16 +43,17 @@ public abstract class AbstractAnnotationModelRuleExtractorTest extends ProjectRe
     @Unroll
     def "handles methods annotated with @#annotationName"() {
         when:
-        1 * ruleDefinition.getAnnotation(annotation) >> null
+        1 * ruleDefinition.isAnnotationPresent(annotation) >> false
 
         then:
         !ruleHandler.isSatisfiedBy(ruleDefinition)
 
         when:
-        1 * ruleDefinition.getAnnotation(annotation) >> Mock(annotation)
+        1 * ruleDefinition.isAnnotationPresent(annotation) >> true
 
         then:
         ruleHandler.isSatisfiedBy(ruleDefinition)
+
         where:
         annotationName << [annotation.getSimpleName()]
     }
@@ -74,18 +75,16 @@ public abstract class AbstractAnnotationModelRuleExtractorTest extends ProjectRe
         rule.apply(context, node)
     }
 
-    void apply(ExtractedModelRule rule, MutableModelNode node) {
-        def context = Stub(MethodModelRuleApplicationContext) {
-            getScope() >> ModelPath.ROOT
-        }
-        rule.apply(context, node)
-    }
-
     void apply(MethodRuleDefinition<?, ?> definition) {
         def rule = extract(definition)
         def registryNode = Stub(MutableModelNode) {
             isAtLeast(_) >> true
             asMutable(_, _) >> { ModelType type, ModelRuleDescriptor ruleDescriptor ->
+                return Stub(ModelView) {
+                    getInstance() >> { Stub(type.concreteClass) }
+                }
+            }
+            asImmutable(_, _) >> { ModelType type, ModelRuleDescriptor ruleDescriptor ->
                 return Stub(ModelView) {
                     getInstance() >> { Stub(type.concreteClass) }
                 }

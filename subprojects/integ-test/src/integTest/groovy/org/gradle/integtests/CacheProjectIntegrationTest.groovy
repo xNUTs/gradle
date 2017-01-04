@@ -17,12 +17,13 @@
 package org.gradle.integtests
 
 import org.gradle.api.internal.artifacts.ivyservice.CacheLayout
-import org.gradle.groovy.scripts.ScriptSource
-import org.gradle.groovy.scripts.UriScriptSource
+import org.gradle.api.internal.hash.DefaultFileHasher
+import org.gradle.api.internal.hash.FileHasher
 import org.gradle.integtests.fixtures.AbstractIntegrationTest
+import org.gradle.internal.hash.HashUtil
 import org.gradle.test.fixtures.file.TestFile
-import org.gradle.test.fixtures.server.http.MavenHttpRepository
 import org.gradle.test.fixtures.server.http.HttpServer
+import org.gradle.test.fixtures.server.http.MavenHttpRepository
 import org.gradle.util.GradleVersion
 import org.junit.Before
 import org.junit.Rule
@@ -32,6 +33,8 @@ import static org.junit.Assert.assertEquals
 
 public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
     static final String TEST_FILE = "build/test.txt"
+
+    final FileHasher fileHasher = new DefaultFileHasher()
 
     @Rule public final HttpServer server = new HttpServer()
 
@@ -54,9 +57,7 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
         projectDir.mkdirs()
         userHomeDir = executer.gradleUserHomeDir
         buildFile = projectDir.file('build.gradle')
-        ScriptSource source = new UriScriptSource("build file", buildFile)
-        propertiesFile = userHomeDir.file("caches/$version/scripts/$source.className/proj/cache.properties")
-        classFile = userHomeDir.file("caches/$version/scripts/$source.className/proj/classes/${source.className}.class")
+
         artifactsCache = projectDir.file(".gradle/$version/taskArtifacts/taskArtifacts.bin")
 
         repo = new MavenHttpRepository(server, mavenRepo)
@@ -65,6 +66,31 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
         repo.module("commons-lang", "commons-lang", "2.6").publish().allowAll()
 
         server.start()
+
+        int minimumBuildTimeMillis = 1000
+        // this is here to ensure that the lastModified() timestamps actually change in between builds.
+        executer.beforeExecute {
+            def initScript = file("init.gradle")
+            initScript.text = """
+            def startAt = System.nanoTime()
+            gradle.buildFinished {
+                long sinceStart = (System.nanoTime() - startAt) / 1000000L
+                if (sinceStart > 0 && sinceStart < $minimumBuildTimeMillis) {
+                  Thread.sleep(($minimumBuildTimeMillis - sinceStart) as Long)
+                }
+            }
+        """
+            withArgument("-I").withArgument(initScript.absolutePath)
+        }
+    }
+
+    private void updateCaches() {
+        String version = GradleVersion.current().version
+        def hash = HashUtil.compactStringFor(fileHasher.hash(buildFile))
+        String dirName = userHomeDir.file("caches/$version/scripts/$hash/proj").list()[0]
+        String baseDir = "caches/$version/scripts/$hash/proj/$dirName"
+        propertiesFile = userHomeDir.file("$baseDir/cache.properties")
+        classFile = userHomeDir.file("$baseDir/classes/_BuildScript_.class")
     }
 
     @Test
@@ -136,6 +162,7 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
     private def testBuild(String taskName, String expected, String... args) {
         executer.inDirectory(projectDir).withTasks(taskName).withArguments(args).run()
         assertEquals(expected, projectDir.file(TEST_FILE).text)
+        updateCaches()
         classFile.assertIsFile()
         propertiesFile.assertIsFile()
         artifactsCache.assertIsFile()

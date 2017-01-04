@@ -1,28 +1,33 @@
 import org.gradle.internal.jvm.Jvm
 
+// Main entry point requires Java 5
+sourceCompatibility = javaVersion.java9Compatible ? 1.6 : 1.5
+
 configurations {
     startScriptGenerator
 }
 
 dependencies {
     compile project(':baseServices')
+    compile project(':jvmServices')
     compile project(':core')
     compile project(':cli')
     compile project(':ui')
     compile project(':toolingApi')
     compile project(':native')
+    compile project(':logging')
 
     compile libraries.slf4j_api
 
     testCompile libraries.groovy
 
     integTestCompile project(':internalIntegTesting')
+    // Needed for testing debug command line option (JDWPUtil)
+    integTestCompile files(jvmForCompilation.toolsJar ?: [])
     integTestRuntime project(':plugins')
+    integTestRuntime project(':languageNative')
 
     testFixturesCompile project(':internalIntegTesting')
-
-    // Needed for testing debug command line option
-    testFixturesCompile files(Jvm.current().toolsJar)
 
     startScriptGenerator project(':plugins')
 }
@@ -30,6 +35,7 @@ dependencies {
 useTestFixtures()
 useTestFixtures(project: ':languageJava')
 useTestFixtures(project: ':messaging')
+useTestFixtures(project: ":logging")
 
 integTestTasks.all {
     if (isCiServer) {
@@ -37,11 +43,15 @@ integTestTasks.all {
     }
 }
 
-jar {
-    manifest.mainAttributes('Main-Class': "org.gradle.launcher.GradleMain")
-    doFirst {
+task configureJar {
+    doLast {
         jar.manifest.mainAttributes('Class-Path': "${project(':core').jar.archivePath.name} ${project(':baseServices').jar.archivePath.name}")
     }
+}
+
+jar {
+    dependsOn configureJar
+    manifest.mainAttributes('Main-Class': "org.gradle.launcher.GradleMain")
 }
 
 task startScripts(type: StartScriptGenerator) {
@@ -50,12 +60,14 @@ task startScripts(type: StartScriptGenerator) {
     launcherJar = jar.outputs.files
 }
 
+@CacheableTask
 class StartScriptGenerator extends DefaultTask {
     File startScriptsDir
 
-    @InputFiles
+    @Classpath
     FileCollection classpath
 
+    @PathSensitive(PathSensitivity.NAME_ONLY)
     @InputFiles
     FileCollection launcherJar
 
@@ -93,3 +105,6 @@ daemonIntegTest {
 }
 
 useClassycle()
+
+verifyTestFilesCleanup.errorWhenNotEmpty = false
+

@@ -16,26 +16,43 @@
 
 package org.gradle.test.fixtures.file;
 
+import com.google.common.hash.Hashing;
+import com.google.common.io.Files;
 import groovy.lang.Closure;
 import groovy.lang.DelegatesTo;
 import org.apache.commons.io.FileUtils;
 import org.apache.tools.ant.Project;
 import org.apache.tools.ant.taskdefs.Zip;
-import org.codehaus.groovy.runtime.DefaultGroovyMethods;
+import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.gradle.internal.nativeintegration.filesystem.FileSystem;
 import org.gradle.internal.nativeintegration.services.NativeServices;
 import org.hamcrest.Matcher;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.ObjectStreamException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.MessageDigest;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Formatter;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
 
 public class TestFile extends File {
     private boolean useNativeTools;
@@ -131,7 +148,17 @@ public class TestFile extends File {
     public TestFile leftShift(Object content) {
         getParentFile().mkdirs();
         try {
-            DefaultGroovyMethods.leftShift(this, content);
+            ResourceGroovyMethods.leftShift(this, content);
+            return this;
+        } catch (IOException e) {
+            throw new RuntimeException(String.format("Could not append to test file '%s'", this), e);
+        }
+    }
+
+    public TestFile setText(String content) {
+        getParentFile().mkdirs();
+        try {
+            ResourceGroovyMethods.setText(this, content);
             return this;
         } catch (IOException e) {
             throw new RuntimeException(String.format("Could not append to test file '%s'", this), e);
@@ -140,6 +167,9 @@ public class TestFile extends File {
 
     public TestFile[] listFiles() {
         File[] children = super.listFiles();
+        if (children == null) {
+            return null;
+        }
         TestFile[] files = new TestFile[children.length];
         for (int i = 0; i < children.length; i++) {
             File child = children[i];
@@ -228,7 +258,7 @@ public class TestFile extends File {
                 FileUtils.copyDirectory(this, target);
             } catch (IOException e) {
                 throw new RuntimeException(String.format("Could not copy test directory '%s' to '%s'", this,
-                        target), e);
+                    target), e);
             }
         } else {
             try {
@@ -270,6 +300,22 @@ public class TestFile extends File {
         }
         assertIsFile();
         return this;
+    }
+
+    /**
+     * Changes the last modified time for this file so that it is different to and smaller than its current last modified time, within file system resolution.
+     */
+    public TestFile makeOlder() {
+        makeOlder(this);
+        return this;
+    }
+
+    /**
+     * Changes the last modified time for the given file so that it is different to and smaller than its current last modified time, within file system resolution.
+     */
+    public static void makeOlder(File file) {
+        // Just move back 2 seconds
+        assert file.setLastModified(file.lastModified() - 2000L);
     }
 
     /**
@@ -318,7 +364,11 @@ public class TestFile extends File {
     }
 
     public TestFile assertIsDir() {
-        assertTrue(String.format("%s is not a directory", this), isDirectory());
+        return assertIsDir("");
+    }
+
+    public TestFile assertIsDir(String hint) {
+        assertTrue(String.format("%s is not a directory. %s", this, hint), isDirectory());
         return this;
     }
 
@@ -345,6 +395,14 @@ public class TestFile extends File {
         other.assertIsFile();
         assertHasChangedSince(other.snapshot());
         return this;
+    }
+
+    public String getMd5Hash() {
+        try {
+            return Files.hash(this, Hashing.md5()).toString();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private byte[] getHash(String algorithm) {
@@ -470,7 +528,7 @@ public class TestFile extends File {
             return this;
         }
         throw new AssertionError("Problems creating dir: " + this
-                + ". Diagnostics: exists=" + this.exists() + ", isFile=" + this.isFile() + ", isDirectory=" + this.isDirectory());
+            + ". Diagnostics: exists=" + this.exists() + ", isFile=" + this.isFile() + ", isDirectory=" + this.isDirectory());
     }
 
     public TestFile createDir(Object path) {
@@ -484,6 +542,7 @@ public class TestFile extends File {
 
     /**
      * Attempts to delete this directory, ignoring failures to do so.
+     *
      * @return this
      */
     public TestFile maybeDeleteDir() {
@@ -557,6 +616,16 @@ public class TestFile extends File {
         return this;
     }
 
+    public TestFile bzip2To(TestFile compressedFile) {
+        new TestFileHelper(this).bzip2To(compressedFile);
+        return this;
+    }
+
+    public TestFile gzipTo(TestFile compressedFile) {
+        new TestFileHelper(this).gzipTo(compressedFile);
+        return this;
+    }
+
     public Snapshot snapshot() {
         assertIsFile();
         return new Snapshot(lastModified(), getHash("MD5"));
@@ -564,7 +633,7 @@ public class TestFile extends File {
 
     public void assertHasChangedSince(Snapshot snapshot) {
         Snapshot now = snapshot();
-        assertTrue(now.modTime != snapshot.modTime || !Arrays.equals(now.hash, snapshot.hash));
+        assertTrue(String.format("contents or modification time of %s have not changed", this), now.modTime != snapshot.modTime || !Arrays.equals(now.hash, snapshot.hash));
     }
 
     public void assertContentsHaveChangedSince(Snapshot snapshot) {
@@ -596,6 +665,10 @@ public class TestFile extends File {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public void assumeExists() {
+        assumeTrue(this.exists());
     }
 
     public ExecOutput exec(Object... args) {

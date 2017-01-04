@@ -17,12 +17,9 @@ package org.gradle.nativeplatform.test.googletest
 
 import org.gradle.ide.visualstudio.fixtures.ProjectFile
 import org.gradle.ide.visualstudio.fixtures.SolutionFile
-import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
 import org.gradle.internal.os.OperatingSystem
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
-import org.gradle.nativeplatform.fixtures.AvailableToolChains
 import org.gradle.nativeplatform.fixtures.app.CppHelloWorldApp
-import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 import org.gradle.util.TextUtil
@@ -31,13 +28,14 @@ import spock.lang.Issue
 import static org.gradle.util.TextUtil.normaliseLineSeparators
 
 @Requires(TestPrecondition.CAN_INSTALL_EXECUTABLE)
-@LeaksFileHandles
 class GoogleTestIntegrationTest extends AbstractInstalledToolChainIntegrationSpec {
 
-    def prebuiltPath = TextUtil.normaliseFileSeparators(new IntegrationTestBuildContext().getSamplesDir().file("native-binaries/google-test/libs").path)
+    def prebuiltDir = buildContext.getSamplesDir().file("native-binaries/google-test/libs")
+    def prebuiltPath = TextUtil.normaliseFileSeparators(prebuiltDir.path)
     def app = new CppHelloWorldApp()
 
     def setup() {
+        prebuiltDir.file("/googleTest/1.7.0/lib/${toolChain.unitTestPlatform}/${googleTestLib}").assumeExists()
         buildFile << """
 apply plugin: 'google-test-test-suite'
 
@@ -47,7 +45,7 @@ model {
             googleTest {
                 headers.srcDir "${prebuiltPath}/googleTest/1.7.0/include"
                 binaries.withType(StaticLibraryBinary) {
-                    staticLibraryFile = file("${prebuiltPath}/googleTest/1.7.0/lib/${googleTestPlatform}/${googleTestLib}")
+                    staticLibraryFile = file("${prebuiltPath}/googleTest/1.7.0/lib/${toolChain.unitTestPlatform}/${googleTestLib}")
                 }
             }
         }
@@ -99,31 +97,6 @@ model {
 """
     }
 
-    private def getGoogleTestPlatform() {
-        if (OperatingSystem.current().isMacOsX()) {
-            return "osx"
-        }
-        if (OperatingSystem.current().isLinux()) {
-            return "linux"
-        }
-        if (toolChain.displayName == "mingw") {
-            return "mingw"
-        }
-        if (toolChain.displayName == "gcc cygwin") {
-            return "cygwin"
-        }
-        if (toolChain.visualCpp) {
-            def vcVersion = (toolChain as AvailableToolChains.InstalledVisualCpp).version
-            switch (vcVersion.major) {
-                case "12":
-                    return "vs2013"
-                case "10":
-                    return "vs2010"
-            }
-        }
-        throw new IllegalStateException("No googletest binary available for ${toolChain.displayName}")
-    }
-
     private def getGoogleTestLib() {
         return OperatingSystem.current().getStaticLibraryName("gtest")
     }
@@ -166,7 +139,7 @@ model {
         useConventionalSourceLocations()
         useStandardConfig()
         buildFile << "apply plugin: 'c'"
-        file("src/hello/c").createDir().file("foo.c").text = "int foobar() { return 0; }"
+        file("src/hello/c/foo.c").text = "int foobar() { return 0; }"
 
         when:
         run "runHelloTestGoogleTestExe"
@@ -354,6 +327,7 @@ model {
         succeeds "runHelloTestGoogleTestExe"
     }
 
+    @Issue("GRADLE-3528")
     def "test suite skipped after successful run"() {
         given:
         useStandardConfig()
@@ -451,6 +425,83 @@ tasks.withType(RunTestExecutable) {
         with (projectFile.projectConfigurations['debug']) {
             includePath == "src/helloTest/headers;src/hello/headers;${prebuiltPath}/googleTest/1.7.0/include"
         }
+    }
+
+    def "non-buildable binaries are not attached to check task"() {
+        given:
+        useConventionalSourceLocations()
+        useStandardConfig()
+        buildFile << """
+model {
+    components {
+        unbuildable(NativeLibrarySpec)
+    }
+    testSuites {
+        unbuildableTest(GoogleTestTestSuiteSpec) {
+            testing \$.components.unbuildable
+        }
+    }
+    binaries {
+        unbuildableTestGoogleTestExe {
+            buildable = false
+        }
+    }
+}
+"""
+
+        when:
+        run "check"
+
+        then:
+        notExecuted ":runUnbuildableTestGoogleTestExe"
+        executedAndNotSkipped ":runHelloTestGoogleTestExe"
+    }
+
+    def "google test run task is properly wired to binaries check tasks and lifecycle check task"() {
+        given:
+        useStandardConfig()
+        useConventionalSourceLocations()
+        buildFile << '''
+            task customHelloCheck()
+            model {
+                components {
+                    hello {
+                        binaries.all {
+                            checkedBy($.tasks.customHelloCheck)
+                        }
+                    }
+                }
+            }
+        '''.stripIndent()
+
+        when:
+        succeeds 'check'
+        then:
+        executed ':customHelloCheck', ':checkHelloSharedLibrary', ':checkHelloStaticLibrary', ':checkHelloTestGoogleTestExe', ':runHelloTestGoogleTestExe'
+
+        when:
+        succeeds 'checkHelloTestGoogleTestExe'
+        then:
+        executed ':runHelloTestGoogleTestExe'
+
+        when:
+        succeeds 'checkHelloStaticLibrary'
+        then:
+        executed ':customHelloCheck', ':runHelloTestGoogleTestExe'
+    }
+
+    @Issue("https://github.com/gradle/gradle/issues/1000")
+    def "can configure legacy plugin"() {
+        given:
+        buildFile << """
+            apply plugin: 'java'
+        """
+
+        when:
+        succeeds 'tasks'
+
+        then:
+        noExceptionThrown()
     }
 
     private useConventionalSourceLocations() {

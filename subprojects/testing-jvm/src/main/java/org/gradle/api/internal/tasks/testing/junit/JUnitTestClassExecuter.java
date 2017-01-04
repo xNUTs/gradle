@@ -16,6 +16,7 @@
 
 package org.gradle.api.internal.tasks.testing.junit;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.Transformer;
 import org.gradle.api.internal.tasks.testing.filter.TestSelectionMatcher;
@@ -65,6 +66,7 @@ public class JUnitTestClassExecuter {
         final Class<?> testClass = Class.forName(testClassName, false, applicationClassLoader);
         List<Filter> filters = new ArrayList<Filter>();
         if (options.hasCategoryConfiguration()) {
+            verifyJUnitCategorySupport();
             Transformer<Class<?>, String> transformer = new Transformer<Class<?>, String>() {
                 public Class<?> transform(final String original) {
                     try {
@@ -80,12 +82,19 @@ public class JUnitTestClassExecuter {
             ));
         }
 
-        if (!options.getIncludedTests().isEmpty()) {
-            filters.add(new MethodNameFilter(options.getIncludedTests()));
-        }
-
         Request request = Request.aClass(testClass);
         Runner runner = request.getRunner();
+
+        if (!options.getIncludedTests().isEmpty()) {
+            TestSelectionMatcher matcher = new TestSelectionMatcher(options.getIncludedTests());
+
+            // For test suites (including suite-like custom Runners), if the test suite class
+            // matches the filter, run the entire suite instead of filtering away its contents.
+            if (!runner.getDescription().isSuite() || !matcher.matchesTest(testClassName, null)) {
+                filters.add(new MethodNameFilter(matcher));
+            }
+        }
+
         if (runner instanceof Filterable) {
             Filterable filterable = (Filterable) runner;
             for (Filter filter : filters) {
@@ -103,6 +112,14 @@ public class JUnitTestClassExecuter {
         RunNotifier notifier = new RunNotifier();
         notifier.addListener(listener);
         runner.run(notifier);
+    }
+
+    private void verifyJUnitCategorySupport() {
+        try {
+            applicationClassLoader.loadClass("org.junit.experimental.categories.Category");
+        } catch (ClassNotFoundException e) {
+            throw new GradleException("JUnit Categories defined but declared JUnit version does not support Categories.");
+        }
     }
 
     private boolean allTestsFiltered(Runner runner, List<Filter> filters) {
@@ -129,15 +146,26 @@ public class JUnitTestClassExecuter {
 
         private final TestSelectionMatcher matcher;
 
-        public MethodNameFilter(Iterable<String> includedTests) {
-            matcher = new TestSelectionMatcher(includedTests);
+        public MethodNameFilter(TestSelectionMatcher matcher) {
+            this.matcher = matcher;
         }
 
         @Override
         public boolean shouldRun(Description description) {
-            return matcher.matchesTest(JUnitTestEventAdapter.className(description), JUnitTestEventAdapter.methodName(description));
+            if (matcher.matchesTest(JUnitTestEventAdapter.className(description), JUnitTestEventAdapter.methodName(description))) {
+                return true;
+            }
+
+            for (Description child : description.getChildren()) {
+                if (shouldRun(child)) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
+        @Override
         public String describe() {
             return "Includes matching test methods";
         }

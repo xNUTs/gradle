@@ -19,6 +19,7 @@ import groovy.xml.MarkupBuilder
 import org.gradle.api.Action
 import org.gradle.internal.xml.XmlTransformer
 import org.gradle.test.fixtures.AbstractModule
+import org.gradle.test.fixtures.Module
 import org.gradle.test.fixtures.file.TestFile
 
 class IvyFileModule extends AbstractModule implements IvyModule {
@@ -53,6 +54,16 @@ class IvyFileModule extends AbstractModule implements IvyModule {
         configurations['default'] = [extendsFrom: ['runtime'], transitive: true, visibility: 'public']
     }
 
+    @Override
+    String getGroup() {
+        return organisation
+    }
+
+    @Override
+    String getVersion() {
+        return revision
+    }
+
     IvyDescriptor getParsedIvy() {
         return new IvyDescriptor(ivyFile)
     }
@@ -69,7 +80,7 @@ class IvyFileModule extends AbstractModule implements IvyModule {
 
     /**
      * Adds an additional artifact to this module.
-     * @param options Can specify any of name, type or classifier
+     * @param options Can specify any of name, type, ext or classifier
      * @return this
      */
     IvyFileModule artifact(Map<String, ?> options = [:]) {
@@ -84,8 +95,16 @@ class IvyFileModule extends AbstractModule implements IvyModule {
     }
 
     Map<String, ?> toArtifact(Map<String, ?> options = [:]) {
-        return [name: options.name ?: module, type: options.type ?: 'jar',
-                ext: options.ext ?: options.type ?: 'jar', classifier: options.classifier ?: null, conf: options.conf ?: '*']
+        def type = notNullOr(options.type, 'jar')
+        return [name: options.name ?: module, type: type,
+                ext: notNullOr(options.ext, type), classifier: options.classifier ?: null, conf: options.conf ?: '*']
+    }
+
+    def notNullOr(def value, def defaultValue) {
+        if (value != null) {
+            return value
+        }
+        return defaultValue
     }
 
     IvyFileModule dependsOn(String organisation, String module, String revision) {
@@ -93,8 +112,22 @@ class IvyFileModule extends AbstractModule implements IvyModule {
         return this
     }
 
+    @Override
+    IvyFileModule dependsOn(Map<String, ?> attributes, Module target) {
+        def allAttrs = [organisation: target.group, module: target.module, revision: target.version]
+        allAttrs.putAll(attributes)
+        dependsOn(allAttrs)
+        return this
+    }
+
     IvyFileModule dependsOn(Map<String, ?> attributes) {
         dependencies << attributes
+        return this
+    }
+
+    @Override
+    IvyFileModule dependsOn(Module target) {
+        dependsOn(target.group, target.module, target.version)
         return this
     }
 

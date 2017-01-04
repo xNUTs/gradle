@@ -23,23 +23,23 @@ import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.ResolveException
 import org.gradle.api.artifacts.dsl.DependencyHandler
 import org.gradle.api.internal.file.FileResolver
-import org.gradle.api.internal.tasks.compile.daemon.CompilerDaemonManager
+import org.gradle.process.internal.daemon.WorkerDaemonManager
 import org.gradle.internal.text.TreeFormatter
 import org.gradle.language.scala.ScalaPlatform
 import org.gradle.play.internal.toolchain.DefaultPlayToolChain
 import org.gradle.play.internal.twirl.TwirlCompileSpec
 import org.gradle.play.platform.PlayPlatform
-import org.gradle.process.internal.WorkerProcessBuilder
+import org.gradle.process.internal.worker.WorkerProcessFactory
 import spock.lang.Specification
 import spock.lang.Unroll
 
 class DefaultPlayToolChainTest extends Specification {
     FileResolver fileResolver = Mock()
-    CompilerDaemonManager compilerDaemonManager = Mock()
+    WorkerDaemonManager compilerDaemonManager = Mock()
     ConfigurationContainer configurationContainer = Mock()
     DependencyHandler dependencyHandler = Mock()
     PlayPlatform playPlatform = Stub(PlayPlatform)
-    org.gradle.internal.Factory<WorkerProcessBuilder>  workerProcessBuilderFactory = Mock()
+    WorkerProcessFactory workerProcessBuilderFactory = Mock()
     def toolChain = new DefaultPlayToolChain(fileResolver, compilerDaemonManager, configurationContainer, dependencyHandler, workerProcessBuilderFactory)
 
     def setup() {

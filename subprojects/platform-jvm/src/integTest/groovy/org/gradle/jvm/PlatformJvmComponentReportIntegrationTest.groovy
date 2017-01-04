@@ -50,7 +50,7 @@ model {
         succeeds "components"
 
         then:
-        outputMatches output, """
+        outputMatches """
 JVM library 'someLib'
 ---------------------
 
@@ -76,7 +76,6 @@ Binaries
 """
     }
 
-    @Requires(TestPrecondition.JDK7_OR_LATER)
     def "shows details of jvm library with multiple targets"() {
         given:
         buildFile << """
@@ -97,7 +96,7 @@ Binaries
         succeeds "components"
 
         then:
-        outputMatches output, """
+        outputMatches """
 JVM library 'myLib'
 -------------------
 
@@ -160,7 +159,7 @@ Binaries
         succeeds "components"
 
         then:
-        outputMatches output, """
+        outputMatches """
 JVM library 'myLib'
 -------------------
 
@@ -254,7 +253,7 @@ model {
         succeeds "components"
 
         then:
-        outputMatches output, """
+        outputMatches """
 JVM library 'someLib'
 ---------------------
 
@@ -274,7 +273,7 @@ Binaries
         API Jar file: build/jars/someLib/java5Jar/api/someLib.jar
         Jar file: build/jars/someLib/java5Jar/someLib.jar
         source sets:
-            Java source 'someLib:java2'
+            Java source 'someLib:java5Jar:java2'
                 srcDir: src/main/java2
                 dependencies:
                     library 'some-library'
@@ -315,12 +314,12 @@ interface CustomJarBinarySpec extends JarBinarySpec {
 import org.gradle.jvm.platform.internal.DefaultJavaPlatform
 
 class Rules extends RuleSource {
-    @BinaryType
-    void customJarBinary(BinaryTypeBuilder<CustomJarBinarySpec> builder) {
+    @ComponentType
+    void customJarBinary(TypeBuilder<CustomJarBinarySpec> builder) {
     }
 
     @Finalize
-    void setPlatformForBinaries(ModelMap<BinarySpec> binaries) {
+    void setPlatformForBinaries(BinaryContainer binaries) {
         def platform = DefaultJavaPlatform.current()
         binaries.withType(CustomJarBinarySpec).beforeEach { binary ->
             binary.targetPlatform = platform
@@ -347,7 +346,7 @@ model {
         succeeds "components"
 
         then:
-        outputMatches output, """
+        outputMatches """
 JVM library 'someLib'
 ---------------------
 

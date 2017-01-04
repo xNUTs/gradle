@@ -22,15 +22,20 @@ import org.gradle.api.internal.tasks.testing.TestClassRunInfo;
 import org.gradle.api.internal.tasks.testing.TestResultProcessor;
 import org.gradle.api.internal.tasks.testing.filter.TestSelectionMatcher;
 import org.gradle.api.tasks.testing.testng.TestNGOptions;
-import org.gradle.internal.TimeProvider;
+import org.gradle.internal.time.TimeProvider;
+import org.gradle.internal.actor.Actor;
+import org.gradle.internal.actor.ActorFactory;
 import org.gradle.internal.id.IdGenerator;
 import org.gradle.internal.reflect.JavaReflectionUtil;
 import org.gradle.internal.reflect.NoSuchMethodException;
-import org.gradle.messaging.actor.Actor;
-import org.gradle.messaging.actor.ActorFactory;
 import org.gradle.util.CollectionUtils;
 import org.gradle.util.GFileUtils;
-import org.testng.*;
+import org.testng.IMethodInstance;
+import org.testng.IMethodInterceptor;
+import org.testng.ISuite;
+import org.testng.ITestContext;
+import org.testng.ITestListener;
+import org.testng.TestNG;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -59,6 +64,7 @@ public class TestNGTestClassProcessor implements TestClassProcessor {
         this.actorFactory = actorFactory;
     }
 
+    @Override
     public void startProcessing(TestResultProcessor resultProcessor) {
         // Wrap the processor in an actor, to make it thread-safe
         resultProcessorActor = actorFactory.createBlockingActor(resultProcessor);
@@ -66,6 +72,7 @@ public class TestNGTestClassProcessor implements TestClassProcessor {
         applicationClassLoader = Thread.currentThread().getContextClassLoader();
     }
 
+    @Override
     public void processTestClass(TestClassRunInfo testClass) {
         // TODO - do this inside some 'testng' suite, so that failures and logging are attached to 'testng' rather than some 'test worker'
         try {
@@ -75,6 +82,7 @@ public class TestNGTestClassProcessor implements TestClassProcessor {
         }
     }
 
+    @Override
     public void stop() {
         try {
             runTests();
@@ -93,15 +101,6 @@ public class TestNGTestClassProcessor implements TestClassProcessor {
         invokeVerifiedMethod(testNg, "setConfigFailurePolicy", String.class, options.getConfigFailurePolicy(), TestNGOptions.DEFAULT_CONFIG_FAILURE_POLICY);
         invokeVerifiedMethod(testNg, "setPreserveOrder", boolean.class, options.getPreserveOrder(), false);
         invokeVerifiedMethod(testNg, "setGroupByInstances", boolean.class, options.getGroupByInstances(), false);
-        try {
-            JavaReflectionUtil.method(TestNG.class, Object.class, "setAnnotations").invoke(testNg, options.getAnnotations());
-        } catch (NoSuchMethodException e) {
-            /* do nothing; method has been removed in TestNG 6.3 */
-        }
-        if (options.getJavadocAnnotations()) {
-            testNg.setSourcePath(CollectionUtils.join(File.pathSeparator, options.getTestResources()));
-        }
-
         testNg.setUseDefaultListeners(options.getUseDefaultListeners());
         testNg.setVerbose(0);
         testNg.setGroups(CollectionUtils.join(",", options.getIncludeGroups()));
@@ -154,10 +153,13 @@ public class TestNGTestClassProcessor implements TestClassProcessor {
             matcher = new TestSelectionMatcher(includedTests);
         }
 
+        @Override
         public List<IMethodInstance> intercept(List<IMethodInstance> methods, ITestContext context) {
+            ISuite suite = context.getSuite();
             List<IMethodInstance> filtered = new LinkedList<IMethodInstance>();
             for (IMethodInstance candidate : methods) {
-                if (matcher.matchesTest(candidate.getMethod().getTestClass().getName(), candidate.getMethod().getMethodName())) {
+                if (matcher.matchesTest(candidate.getMethod().getTestClass().getName(), candidate.getMethod().getMethodName())
+                    || matcher.matchesTest(suite.getName(), null)) {
                     filtered.add(candidate);
                 }
             }

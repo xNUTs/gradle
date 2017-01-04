@@ -32,7 +32,7 @@ public class ClassFilesAnalyzer implements FileVisitor {
     private final ClassDependentsAccumulator accumulator;
 
     public ClassFilesAnalyzer(ClassDependenciesAnalyzer analyzer) {
-        this(analyzer, "", new ClassDependentsAccumulator(""));
+        this(analyzer, "", new ClassDependentsAccumulator());
     }
 
     ClassFilesAnalyzer(ClassDependenciesAnalyzer analyzer, String packagePrefix, ClassDependentsAccumulator accumulator) {
@@ -41,8 +41,10 @@ public class ClassFilesAnalyzer implements FileVisitor {
         this.accumulator = accumulator;
     }
 
+    @Override
     public void visitDir(FileVisitDetails dirDetails) {}
 
+    @Override
     public void visitFile(FileVisitDetails fileDetails) {
         File file = fileDetails.getFile();
         if (!hasExtension(file, ".class")) {
@@ -54,10 +56,10 @@ public class ClassFilesAnalyzer implements FileVisitor {
         }
 
         ClassAnalysis analysis = analyzer.getClassAnalysis(className, file);
-        accumulator.addClass(className, analysis.isDependencyToAll(), analysis.getClassDependencies());
+        accumulator.addClass(className, analysis.isDependencyToAll(), analysis.getClassDependencies(), analysis.getConstants(), analysis.getLiterals());
     }
 
     public ClassSetAnalysisData getAnalysis() {
-        return new ClassSetAnalysisData(accumulator.getDependentsMap());
+        return new ClassSetAnalysisData(accumulator.getDependentsMap(), accumulator.getClassesToConstants(), accumulator.getLiteralsToClasses());
     }
 }

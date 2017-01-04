@@ -1,0 +1,15 @@
+/**
+ * Process execution abstractions.
+ */
+
+sourceCompatibility = javaVersion.java9Compatible ? 1.6 : 1.5
+
+dependencies {
+    compile project(':baseServices')
+    compile project(':logging')
+
+    testCompile libraries.groovy
+}
+
+useTestFixtures()
+//useClassycle()

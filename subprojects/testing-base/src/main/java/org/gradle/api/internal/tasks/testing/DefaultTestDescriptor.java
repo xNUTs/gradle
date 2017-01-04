@@ -16,9 +16,7 @@
 
 package org.gradle.api.internal.tasks.testing;
 
-import java.io.Serializable;
-
-public class DefaultTestDescriptor extends AbstractTestDescriptor implements Serializable {
+public class DefaultTestDescriptor extends AbstractTestDescriptor {
     private final String className;
 
     public DefaultTestDescriptor(Object id, String className, String name) {
@@ -28,13 +26,15 @@ public class DefaultTestDescriptor extends AbstractTestDescriptor implements Ser
 
     @Override
     public String toString() {
-        return String.format("Test %s(%s)", getName(), className);
+        return "Test " + getName() + "(" + className + ")";
     }
 
+    @Override
     public boolean isComposite() {
         return false;
     }
 
+    @Override
     public String getClassName() {
         return className;
     }

@@ -73,22 +73,25 @@ class CustomJarBinarySpecSubtypeIntegrationTest extends AbstractIntegrationSpec 
             ${registerBinaryType("CustomChildJarBinarySpec")}
 
             class Results {
-                static def jarBinaries = []
-                static def customBinaries = []
+                def jarBinaries = []
+                def customBinaries = []
             }
 
             class BinaryNameCollectorRules extends RuleSource {
-                @Finalize
-                void printJarBinaries(ModelMap<JarBinarySpec> jarBinaries) {
+                @Model
+                Results results() { new Results() }
+
+                @Mutate
+                void printJarBinaries(Results results, @Path("binaries") ModelMap<JarBinarySpec> jarBinaries) {
                     for (JarBinarySpec jarBinary : jarBinaries) {
-                        Results.jarBinaries.add jarBinary.name
+                        results.jarBinaries.add jarBinary.name
                     }
                 }
 
-                @Finalize
-                void printCustomBinaries(ModelMap<CustomChildJarBinarySpec> customBinaries) {
+                @Mutate
+                void printCustomBinaries(Results results, @Path("binaries") ModelMap<CustomChildJarBinarySpec> customBinaries) {
                     for (CustomChildJarBinarySpec customBinary : customBinaries) {
-                        Results.customBinaries.add customBinary.name
+                        results.customBinaries.add customBinary.name
                     }
                 }
             }
@@ -115,8 +118,9 @@ class CustomJarBinarySpecSubtypeIntegrationTest extends AbstractIntegrationSpec 
                 tasks {
                     create("validate") {
                         dependsOn "assemble"
-                        assert Results.jarBinaries == ["customJar", "jar"]
-                        assert Results.customBinaries == ["customJar"]
+                        def results = \$.results
+                        assert results.jarBinaries == ["customJar", "jar"]
+                        assert results.customBinaries == ["customJar"]
                     }
                 }
             }
@@ -224,12 +228,12 @@ class CustomJarBinarySpecSubtypeIntegrationTest extends AbstractIntegrationSpec 
             import org.gradle.jvm.platform.internal.DefaultJavaPlatform
 
             class ${binaryType}Rules extends RuleSource {
-                @BinaryType
-                void customJarBinary(BinaryTypeBuilder<${binaryType}> builder) {
+                @ComponentType
+                void customJarBinary(TypeBuilder<${binaryType}> builder) {
                 }
 
                 @Finalize
-                void setPlatformForBinaries(ModelMap<BinarySpec> binaries) {
+                void setPlatformForBinaries(BinaryContainer binaries) {
                     def platform = DefaultJavaPlatform.current()
                     binaries.withType(${binaryType}).beforeEach { binary ->
                         binary.targetPlatform = platform

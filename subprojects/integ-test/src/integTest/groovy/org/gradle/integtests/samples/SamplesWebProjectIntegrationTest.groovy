@@ -32,7 +32,7 @@ class SamplesWebProjectIntegrationTest extends AbstractIntegrationSpec {
     def "can build war"() {
         when:
         sample sample
-        run 'clean', 'assemble'
+        runWithExpectedDeprecationWarning('clean', 'assemble')
 
         then:
         TestFile tmpDir = file('unjar')
@@ -72,19 +72,17 @@ println "http port = \$httpPort, stop port = \$stopPort"
 ext.url = new URL("${url}")
 
 [jettyRun, jettyRunWar]*.daemon = true
-[jettyRun, jettyRunWar]*.doLast {
-   if (getStopPort() != null && getStopPort() > 0 && getStopKey() != null) {
-      Monitor monitor = new Monitor(getStopPort(), getStopKey(), server.getProxiedObject());
-      monitor.start();
-   }
+
+task runTest(dependsOn: jettyRun) {
+    doLast {
+        callServlet()
+    }
 }
 
-task runTest(dependsOn: jettyRun) << {
-    callServlet()
-}
-
-task runWarTest(dependsOn: jettyRunWar) << {
-    callServlet()
+task runWarTest(dependsOn: jettyRunWar) {
+    doLast {
+        callServlet()
+    }
 }
 
 private void callServlet() {
@@ -96,16 +94,20 @@ private void callServlet() {
 
         when:
         sample sample
-        run 'runTest'
+        runWithExpectedDeprecationWarning('runTest')
 
         then:
         output.contains('Hello Gradle')
 
         when:
         sample sample
-        run 'runWarTest'
+        runWithExpectedDeprecationWarning('runWarTest')
 
         then:
         output.contains('Hello Gradle')
+    }
+
+    private void runWithExpectedDeprecationWarning(String... tasks) {
+        result = executer.withTasks(tasks).expectDeprecationWarning().run()
     }
 }

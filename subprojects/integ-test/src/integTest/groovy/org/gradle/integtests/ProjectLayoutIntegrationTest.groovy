@@ -44,7 +44,7 @@ repositories {
     mavenCentral()
 }
 dependencies {
-    compile 'org.codehaus.groovy:groovy-all:2.4.4'
+    compile 'org.codehaus.groovy:groovy-all:2.4.7'
     compile 'org.scala-lang:scala-library:2.11.1'
 }
 
@@ -63,10 +63,6 @@ sourceSets.each {
         scala.srcDir 'src/scala'
         scala.include "org/gradle/$name/**"
     }
-}
-
-tasks.withType(ScalaCompile) {
-    scalaCompileOptions.useAnt = false
 }
 '''
         file('src/org/gradle/main/resource.txt') << 'some text'

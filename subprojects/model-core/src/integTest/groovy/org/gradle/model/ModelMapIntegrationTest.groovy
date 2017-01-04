@@ -23,6 +23,79 @@ import org.gradle.platform.base.ComponentSpec
 import spock.lang.Issue
 
 class ModelMapIntegrationTest extends AbstractIntegrationSpec {
+    def "provides basic meta-data for map"() {
+        when:
+        buildScript '''
+            @Managed
+            interface Thing {
+            }
+
+            class Rules extends RuleSource {
+              @Model
+              void things(ModelMap<Thing> things) {
+              }
+            }
+
+            apply type: Rules
+
+            model {
+              tasks {
+                create("print") {
+                  doLast {
+                    def things = $.things
+                    println "name: $things.name"
+                    println "display-name: $things.displayName"
+                    println "to-string: ${things.toString()}"
+                  }
+                }
+              }
+            }
+        '''
+
+        then:
+        succeeds "print"
+
+        and:
+        output.contains "name: things"
+        output.contains "display-name: ModelMap<Thing> 'things'"
+        output.contains "to-string: ModelMap<Thing> 'things'"
+    }
+
+    def "can view as ModelElement"() {
+        when:
+        buildScript '''
+            @Managed
+            interface Thing {
+            }
+
+            class Rules extends RuleSource {
+              @Model
+              void things(ModelMap<Thing> things) {
+              }
+              @Mutate
+              void tasks(ModelMap<Task> tasks, @Path("things") ModelElement things) {
+                tasks.create("print") {
+                  doLast {
+                    println "name: $things.name"
+                    println "display-name: $things.displayName"
+                    println "to-string: ${things.toString()}"
+                  }
+                }
+              }
+            }
+
+            apply type: Rules
+        '''
+
+        then:
+        succeeds "print"
+
+        and:
+        output.contains "name: things"
+        output.contains "display-name: ModelMap<Thing> 'things'"
+        output.contains "to-string: ModelMap<Thing> 'things'"
+    }
+
     def "cannot add unregistered type to specialized model map"() {
         buildFile << """
         @Managed interface SampleComponent extends ComponentSpec {}
@@ -30,7 +103,7 @@ class ModelMapIntegrationTest extends AbstractIntegrationSpec {
 
         class Rules extends RuleSource {
             @ComponentType
-            void registerComponent(ComponentTypeBuilder<SampleComponent> builder) {}
+            void registerComponent(TypeBuilder<SampleComponent> builder) {}
         }
         apply plugin: Rules
 
@@ -43,10 +116,139 @@ class ModelMapIntegrationTest extends AbstractIntegrationSpec {
 
         expect:
         fails "components"
-        failure.assertHasCause("Cannot create a 'NonRegisteredComponent' because this type is not known to components. Known types are: SampleComponent")
+        failure.assertHasCause("Cannot create an instance of type 'NonRegisteredComponent' as this type is not known. Known types: ${ComponentSpec.name}, SampleComponent.")
     }
 
-    def "cannot add unregistered type to model map"() {
+    def "cannot add unregistered type to model map of extensible type"() {
+        buildFile << """
+        @Managed interface SampleComponent extends ComponentSpec {}
+        interface NonRegisteredComponent extends ComponentSpec {}
+
+        class Rules extends RuleSource {
+            @ComponentType
+            void register1(TypeBuilder<SampleComponent> builder) {}
+            @Model
+            void things(ModelMap<ComponentSpec> m) {}
+        }
+        apply plugin: Rules
+
+        model {
+            things {
+                main(NonRegisteredComponent) {}
+            }
+        }
+        """
+
+        expect:
+        fails "model"
+        failure.assertHasCause("Cannot create an instance of type 'NonRegisteredComponent' as this type is not known. Known types: ${ComponentSpec.name}, SampleComponent.")
+    }
+
+    def "cannot add unregistered type to model map of specialized extensible type"() {
+        buildFile << """
+        @Managed interface SampleComponent extends ComponentSpec {}
+        @Managed interface Sample2Component extends ComponentSpec {}
+        interface NonRegisteredComponent extends SampleComponent {}
+
+        class Rules extends RuleSource {
+            @ComponentType
+            void register1(TypeBuilder<SampleComponent> builder) {}
+            @ComponentType
+            void register2(TypeBuilder<Sample2Component> builder) {}
+            @Model
+            void things(ModelMap<SampleComponent> m) {}
+        }
+        apply plugin: Rules
+
+        model {
+            things {
+                main(NonRegisteredComponent) {}
+            }
+        }
+        """
+
+        expect:
+        fails "model"
+        failure.assertHasCause("Cannot create an instance of type 'NonRegisteredComponent' as this type is not known. Known types: SampleComponent.")
+    }
+
+    def "cannot add unregistered subtype to filtered specialized model map"() {
+        buildFile << """
+        @Managed interface SampleComponent extends ComponentSpec {}
+        @Managed interface Sample2Component extends ComponentSpec {}
+        interface NonRegisteredComponent extends SampleComponent {}
+
+        class Rules extends RuleSource {
+            @ComponentType
+            void registerType1(TypeBuilder<SampleComponent> builder) {}
+            @ComponentType
+            void registerType2(TypeBuilder<Sample2Component> builder) {}
+        }
+        apply plugin: Rules
+
+        model {
+            components {
+                withType(SampleComponent).create("other", NonRegisteredComponent)
+            }
+        }
+        """
+
+        expect:
+        fails "components"
+        failure.assertHasCause("Cannot create an instance of type 'NonRegisteredComponent' as this type is not known. Known types: SampleComponent.")
+    }
+
+    def "cannot add type to filtered specialized model map when it does not satisfied all type constraints"() {
+        buildFile << """
+        @Managed interface SampleComponent extends ComponentSpec {}
+        @Managed interface Sample2Component extends ComponentSpec {}
+
+        class Rules extends RuleSource {
+            @ComponentType
+            void registerType1(TypeBuilder<SampleComponent> builder) {}
+            @ComponentType
+            void registerType2(TypeBuilder<Sample2Component> builder) {}
+        }
+        apply plugin: Rules
+
+        model {
+            components {
+                withType(Sample2Component).create("other", SampleComponent)
+            }
+        }
+        """
+
+        expect:
+        fails "components"
+        failure.assertHasCause("Cannot create 'components.other' with type 'SampleComponent' as this is not a subtype of 'Sample2Component'.")
+    }
+
+    def "can add type to filtered specialized model map when it satisfies all type constraints"() {
+        buildFile << """
+        @Managed interface SampleComponent extends ComponentSpec {}
+        interface Thing { }
+        @Managed interface Sample2Component extends SampleComponent, Thing {}
+
+        class Rules extends RuleSource {
+            @ComponentType
+            void registerType1(TypeBuilder<SampleComponent> builder) {}
+            @ComponentType
+            void registerType2(TypeBuilder<Sample2Component> builder) {}
+        }
+        apply plugin: Rules
+
+        model {
+            components {
+                withType(SampleComponent).withType(Thing).create("other", Sample2Component)
+            }
+        }
+        """
+
+        expect:
+        succeeds "components"
+    }
+
+    def "cannot add invalid type to model map"() {
         buildFile << """
             @Managed interface Thing {}
 
@@ -130,6 +332,7 @@ class ModelMapIntegrationTest extends AbstractIntegrationSpec {
     def "reasonable error message when trying to create unknown type in ModelMap"() {
         buildFile << """
             @Managed interface Thing {}
+            interface UnknownThing {}
 
             class Rules extends RuleSource {
                 @Model
@@ -146,6 +349,7 @@ class ModelMapIntegrationTest extends AbstractIntegrationSpec {
 
         expect:
         fails "model"
-        failureHasCause "Attempt to read property 'UnknownThing' from a write only view of model element 'things' given to rule 'things { ... } @ build.gradle line 11, column 17"
+        failureHasCause "Exception thrown while executing model rule: things { ... } @ build.gradle line 12, column 17"
+        failureHasCause "Cannot create 'things.thing' with type 'UnknownThing' as this is not a subtype of 'Thing'."
     }
 }

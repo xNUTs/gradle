@@ -16,12 +16,14 @@
 
 package org.gradle.internal;
 
-import com.google.common.collect.Lists;
 import org.gradle.api.GradleException;
+import org.gradle.api.UncheckedIOException;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 
 public class FileUtils {
@@ -69,7 +71,7 @@ public class FileUtils {
      * @return the encompassing roots
      */
     public static Collection<? extends File> calculateRoots(Iterable<? extends File> files) {
-        List<File> roots = Lists.newLinkedList();
+        List<File> roots = new LinkedList<File>();
 
         files:
         for (File file : files) {
@@ -103,6 +105,17 @@ public class FileUtils {
      */
     public static boolean hasExtension(File file, String extension) {
         return file.getPath().endsWith(extension);
+    }
+
+    /**
+     * Canonializes the given file.
+     */
+    public static File canonicalize(File src) {
+        try {
+            return src.getCanonicalFile();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
 }

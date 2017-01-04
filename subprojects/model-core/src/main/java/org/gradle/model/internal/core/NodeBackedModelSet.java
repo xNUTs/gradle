@@ -22,6 +22,7 @@ import com.google.common.collect.Lists;
 import groovy.lang.Closure;
 import org.gradle.api.Action;
 import org.gradle.api.internal.ClosureBackedAction;
+import org.gradle.api.specs.Specs;
 import org.gradle.model.ModelSet;
 import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor;
 import org.gradle.model.internal.manage.instance.ManagedInstance;
@@ -34,18 +35,18 @@ import static org.gradle.model.internal.core.NodePredicate.allLinks;
 
 public class NodeBackedModelSet<T> implements ModelSet<T>, ManagedInstance {
 
-    private final String toString;
     private final ModelType<T> elementType;
     private final ModelRuleDescriptor descriptor;
     private final MutableModelNode modelNode;
     private final ModelViewState state;
     private final ChildNodeInitializerStrategy<T> creatorStrategy;
     private final ModelReference<T> elementTypeReference;
+    private final ModelType<?> publicType;
 
     private Collection<T> elements;
 
-    public NodeBackedModelSet(String toString, ModelType<T> elementType, ModelRuleDescriptor descriptor, MutableModelNode modelNode, ModelViewState state, ChildNodeInitializerStrategy<T> creatorStrategy) {
-        this.toString = toString;
+    public NodeBackedModelSet(ModelType<?> publicType, ModelType<T> elementType, ModelRuleDescriptor descriptor, MutableModelNode modelNode, ModelViewState state, ChildNodeInitializerStrategy<T> creatorStrategy) {
+        this.publicType = publicType;
         this.elementType = elementType;
         this.elementTypeReference = ModelReference.of(elementType);
         this.descriptor = descriptor;
@@ -65,8 +66,18 @@ public class NodeBackedModelSet<T> implements ModelSet<T>, ManagedInstance {
     }
 
     @Override
+    public String getName() {
+        return modelNode.getPath().getName();
+    }
+
+    @Override
+    public String getDisplayName() {
+        return publicType.getDisplayName() + " '" + modelNode.getPath() + "'";
+    }
+
+    @Override
     public String toString() {
-        return toString;
+        return getDisplayName();
     }
 
     @Override
@@ -77,7 +88,7 @@ public class NodeBackedModelSet<T> implements ModelSet<T>, ManagedInstance {
         ModelPath childPath = modelNode.getPath().child(name);
         final ModelRuleDescriptor descriptor = this.descriptor.append("create()");
 
-        NodeInitializer nodeInitializer = creatorStrategy.initializer(elementType);
+        NodeInitializer nodeInitializer = creatorStrategy.initializer(elementType, Specs.<ModelType<?>>satisfyAll());
         ModelRegistration registration = ModelRegistrations.of(childPath, nodeInitializer)
             .descriptor(descriptor)
             .action(ModelActionRole.Initialize, NoInputsModelAction.of(ModelReference.of(childPath, elementType), descriptor, action))

@@ -21,12 +21,22 @@ import org.gradle.api.internal.classloading.GroovySystemLoaderFactory;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
 import org.gradle.internal.UncheckedException;
-import org.gradle.internal.classloader.*;
+import org.gradle.internal.classloader.CachingClassLoader;
+import org.gradle.internal.classloader.ClassLoaderFactory;
+import org.gradle.internal.classloader.ClasspathUtil;
+import org.gradle.internal.classloader.FilteringClassLoader;
+import org.gradle.internal.classloader.MultiParentClassLoader;
+import org.gradle.internal.classloader.VisitableURLClassLoader;
 import org.gradle.internal.classpath.DefaultClassPath;
 import org.gradle.internal.io.ClassLoaderObjectInputStream;
 import org.gradle.internal.nativeintegration.services.NativeServices;
-import org.gradle.language.base.internal.compile.CompileSpec;
-import org.gradle.language.base.internal.compile.Compiler;
+import org.gradle.process.internal.daemon.WorkSpec;
+import org.gradle.process.internal.daemon.WorkerDaemonAction;
+import org.gradle.process.internal.daemon.WorkerDaemonProtocol;
+import org.gradle.process.internal.daemon.WorkerDaemonResult;
+import org.gradle.process.internal.daemon.WorkerDaemon;
+import org.gradle.process.internal.daemon.WorkerDaemonFactory;
+import org.gradle.process.internal.daemon.DaemonForkOptions;
 import org.gradle.util.GUtil;
 
 import java.io.ByteArrayInputStream;
@@ -34,7 +44,7 @@ import java.io.File;
 import java.io.Serializable;
 import java.util.concurrent.Callable;
 
-public class InProcessCompilerDaemonFactory implements CompilerDaemonFactory {
+public class InProcessCompilerDaemonFactory implements WorkerDaemonFactory {
     private final ClassLoaderFactory classLoaderFactory;
     private final File gradleUserHomeDir;
     private final GroovySystemLoaderFactory groovySystemLoaderFactory = new GroovySystemLoaderFactory();
@@ -44,24 +54,27 @@ public class InProcessCompilerDaemonFactory implements CompilerDaemonFactory {
         this.gradleUserHomeDir = gradleUserHomeDir;
     }
 
-    public CompilerDaemon getDaemon(File workingDir, final DaemonForkOptions forkOptions) {
-        return new CompilerDaemon() {
-            public <T extends CompileSpec> CompileResult execute(Compiler<T> compiler, T spec) {
+    @Override
+    public WorkerDaemon getDaemon(Class<? extends WorkerDaemonProtocol> serverImplementationClass, File workingDir, final DaemonForkOptions forkOptions) {
+        return new WorkerDaemon() {
+            public <T extends WorkSpec> WorkerDaemonResult execute(WorkerDaemonAction<T> compiler, T spec) {
                 ClassLoader groovyClassLoader = classLoaderFactory.createIsolatedClassLoader(new DefaultClassPath(forkOptions.getClasspath()));
                 GroovySystemLoader groovyLoader = groovySystemLoaderFactory.forClassLoader(groovyClassLoader);
-                FilteringClassLoader filteredGroovy = classLoaderFactory.createFilteringClassLoader(groovyClassLoader);
+                FilteringClassLoader.Spec filteredGroovySpec = new FilteringClassLoader.Spec();
                 for (String packageName : forkOptions.getSharedPackages()) {
-                    filteredGroovy.allowPackage(packageName);
+                    filteredGroovySpec.allowPackage(packageName);
                 }
+                ClassLoader filteredGroovy = classLoaderFactory.createFilteringClassLoader(groovyClassLoader, filteredGroovySpec);
 
-                FilteringClassLoader loggingClassLoader = classLoaderFactory.createFilteringClassLoader(compiler.getClass().getClassLoader());
-                loggingClassLoader.allowPackage("org.slf4j");
-                loggingClassLoader.allowClass(Logger.class);
-                loggingClassLoader.allowClass(LogLevel.class);
+                FilteringClassLoader.Spec loggingSpec = new FilteringClassLoader.Spec();
+                loggingSpec.allowPackage("org.slf4j");
+                loggingSpec.allowClass(Logger.class);
+                loggingSpec.allowClass(LogLevel.class);
+                ClassLoader loggingClassLoader = classLoaderFactory.createFilteringClassLoader(compiler.getClass().getClassLoader(), loggingSpec);
 
                 ClassLoader groovyAndLoggingClassLoader = new CachingClassLoader(new MultiParentClassLoader(loggingClassLoader, filteredGroovy));
 
-                ClassLoader workerClassLoader = new MutableURLClassLoader(groovyAndLoggingClassLoader, ClasspathUtil.getClasspath(compiler.getClass().getClassLoader()));
+                ClassLoader workerClassLoader = new VisitableURLClassLoader(groovyAndLoggingClassLoader, ClasspathUtil.getClasspath(compiler.getClass().getClassLoader()));
 
                 try {
                     byte[] serializedWorker = GUtil.serialize(new Worker<T>(compiler, spec, gradleUserHomeDir));
@@ -70,7 +83,7 @@ public class InProcessCompilerDaemonFactory implements CompilerDaemonFactory {
                     Object result = worker.call();
                     byte[] serializedResult = GUtil.serialize(result);
                     inputStream = new ClassLoaderObjectInputStream(new ByteArrayInputStream(serializedResult), getClass().getClassLoader());
-                    return (CompileResult) inputStream.readObject();
+                    return (WorkerDaemonResult) inputStream.readObject();
                 } catch (Exception e) {
                     throw UncheckedException.throwAsUncheckedException(e);
                 } finally {
@@ -80,21 +93,22 @@ public class InProcessCompilerDaemonFactory implements CompilerDaemonFactory {
         };
     }
 
-    private static class Worker<T extends CompileSpec> implements Callable<Object>, Serializable {
-        private final Compiler<T> compiler;
+    private static class Worker<T extends WorkSpec> implements Callable<Object>, Serializable {
+        private final WorkerDaemonAction<T> compiler;
         private final T spec;
         private final File gradleUserHome;
 
-        private Worker(Compiler<T> compiler, T spec, File gradleUserHome) {
+        private Worker(WorkerDaemonAction<T> compiler, T spec, File gradleUserHome) {
             this.compiler = compiler;
             this.spec = spec;
             this.gradleUserHome = gradleUserHome;
         }
 
+        @Override
         public Object call() throws Exception {
             // We have to initialize this here because we're in an isolated classloader
             NativeServices.initialize(gradleUserHome);
-            return new CompileResult(compiler.execute(spec).getDidWork(), null);
+            return compiler.execute(spec);
         }
     }
 }

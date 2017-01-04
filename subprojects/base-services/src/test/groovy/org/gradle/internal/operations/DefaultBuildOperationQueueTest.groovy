@@ -22,6 +22,7 @@ import org.gradle.api.GradleException
 import spock.lang.Specification
 import spock.lang.Unroll
 
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 
 class DefaultBuildOperationQueueTest extends Specification {
@@ -55,10 +56,19 @@ class DefaultBuildOperationQueueTest extends Specification {
     }
 
     BuildOperationQueue operationQueue
+    DefaultBuildOperationWorkerRegistry workerRegistry
+    BuildOperationWorkerRegistry.Completion completion
 
     void setupQueue(int threads) {
+        workerRegistry = new DefaultBuildOperationWorkerRegistry(threads);
         ListeningExecutorService sameThreadExecutor = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(threads))
-        operationQueue = new DefaultBuildOperationQueue(sameThreadExecutor, new SimpleWorker(), LOG_LOCATION)
+        completion = workerRegistry.operationStart()
+        operationQueue = new DefaultBuildOperationQueue(workerRegistry.current, sameThreadExecutor, new SimpleWorker())
+    }
+
+    def "cleanup"() {
+        completion.operationFinish()
+        workerRegistry.stop()
     }
 
     @Unroll
@@ -88,7 +98,7 @@ class DefaultBuildOperationQueueTest extends Specification {
         5    | 4
         5    | 10
     }
-    
+
     def "cannot use operation queue once it has completed"() {
         given:
         setupQueue(1)
@@ -151,5 +161,79 @@ class DefaultBuildOperationQueueTest extends Specification {
         // assumes we don't fail early
         MultipleBuildOperationFailures e = thrown()
         e.getCauses()*.message == [ 'first', 'second', 'third' ]
+    }
+
+    def "when log location is set value is propagated in exceptions"() {
+        given:
+        setupQueue(1)
+        operationQueue.setLogLocation(LOG_LOCATION)
+        operationQueue.add(Stub(TestBuildOperation) {
+            run() >> { throw new RuntimeException("first") }
+        })
+
+        when:
+        operationQueue.waitForCompletion()
+
+        then:
+        MultipleBuildOperationFailures e = thrown()
+        e.message.contains(LOG_LOCATION)
+    }
+
+    @Unroll
+    def "when queue is canceled, unstarted operations do not execute (#runs runs, #threads threads)" () {
+        def expectedInvocations = threads <= runs ? threads : runs
+        CountDownLatch startedLatch = new CountDownLatch(expectedInvocations)
+        CountDownLatch releaseLatch = new CountDownLatch(1)
+        def operationAction = Mock(Runnable)
+
+        given:
+        setupQueue(threads)
+
+        when:
+        runs.times { operationQueue.add(new SynchronizedBuildOperation(operationAction, startedLatch, releaseLatch)) }
+        // wait for operations to begin running
+        startedLatch.await()
+
+        and:
+        operationQueue.cancel()
+
+        and:
+        // release the running operations to complete
+        releaseLatch.countDown()
+        operationQueue.waitForCompletion()
+
+        then:
+        expectedInvocations * operationAction.run()
+
+        where:
+        runs | threads
+        0    | 1
+        0    | 4
+        0    | 10
+        1    | 1
+        1    | 4
+        1    | 10
+        5    | 1
+        5    | 4
+        5    | 10
+    }
+
+    static class SynchronizedBuildOperation extends TestBuildOperation {
+        final Runnable operationAction
+        final CountDownLatch startedLatch
+        final CountDownLatch releaseLatch
+
+        SynchronizedBuildOperation(Runnable operationAction, CountDownLatch startedLatch, CountDownLatch releaseLatch) {
+            this.operationAction = operationAction
+            this.startedLatch = startedLatch
+            this.releaseLatch = releaseLatch
+        }
+
+        @Override
+        void run() {
+            operationAction.run()
+            startedLatch.countDown()
+            releaseLatch.await()
+        }
     }
 }

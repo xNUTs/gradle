@@ -18,9 +18,7 @@ package org.gradle.api.internal.tasks.testing;
 
 import org.gradle.api.Nullable;
 
-import java.io.Serializable;
-
-public abstract class AbstractTestDescriptor implements TestDescriptorInternal, Serializable {
+public abstract class AbstractTestDescriptor implements TestDescriptorInternal {
     private final Object id;
     private final String name;
 
@@ -29,18 +27,22 @@ public abstract class AbstractTestDescriptor implements TestDescriptorInternal, 
         this.name = name;
     }
 
+    @Override
     public Object getId() {
         return id;
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
+    @Override
     public String getClassName() {
         return null;
     }
 
+    @Override
     public TestDescriptorInternal getParent() {
         return null;
     }

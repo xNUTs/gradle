@@ -25,12 +25,11 @@ import org.gradle.language.base.internal.registry.LanguageTransform;
 import org.gradle.language.base.internal.registry.LanguageTransformContainer;
 import org.gradle.language.base.plugins.ComponentModelBasePlugin;
 import org.gradle.language.coffeescript.CoffeeScriptSourceSet;
-import org.gradle.language.coffeescript.internal.DefaultCoffeeScriptSourceSet;
 import org.gradle.language.javascript.JavaScriptSourceSet;
 import org.gradle.model.*;
 import org.gradle.platform.base.BinarySpec;
-import org.gradle.platform.base.LanguageType;
-import org.gradle.platform.base.LanguageTypeBuilder;
+import org.gradle.platform.base.ComponentType;
+import org.gradle.platform.base.TypeBuilder;
 import org.gradle.play.PlayApplicationSpec;
 import org.gradle.play.internal.JavaScriptSourceCode;
 import org.gradle.play.internal.PlayApplicationBinarySpecInternal;
@@ -52,11 +51,11 @@ public class PlayCoffeeScriptPlugin implements Plugin<Project> {
     private static final String DEFAULT_RHINO_VERSION = "1.7R4";
 
     static String getDefaultCoffeeScriptDependencyNotation() {
-        return String.format("org.coffeescript:coffee-script-js:%s@js", DEFAULT_COFFEESCRIPT_VERSION);
+        return "org.coffeescript:coffee-script-js:" + DEFAULT_COFFEESCRIPT_VERSION + "@js";
     }
 
     static String getDefaultRhinoDependencyNotation() {
-        return String.format("org.mozilla:rhino:%s", DEFAULT_RHINO_VERSION);
+        return "org.mozilla:rhino:" + DEFAULT_RHINO_VERSION;
     }
 
     @Override
@@ -65,10 +64,8 @@ public class PlayCoffeeScriptPlugin implements Plugin<Project> {
     }
 
     static class Rules extends RuleSource {
-        @LanguageType
-        void registerCoffeeScript(LanguageTypeBuilder<CoffeeScriptSourceSet> builder) {
-            builder.setLanguageName("coffeeScript");
-            builder.defaultImplementation(DefaultCoffeeScriptSourceSet.class);
+        @ComponentType
+        void registerCoffeeScript(TypeBuilder<CoffeeScriptSourceSet> builder) {
         }
 
         @Finalize
@@ -83,8 +80,7 @@ public class PlayCoffeeScriptPlugin implements Plugin<Project> {
         }
 
         @Mutate
-        void createGeneratedJavaScriptSourceSets(ModelMap<PlayApplicationBinarySpecInternal> binaries, final ServiceRegistry serviceRegistry) {
-            final SourceDirectorySetFactory sourceDirectorySetFactory = serviceRegistry.get(SourceDirectorySetFactory.class);
+        void createGeneratedJavaScriptSourceSets(@Path("binaries") ModelMap<PlayApplicationBinarySpecInternal> binaries, final SourceDirectorySetFactory sourceDirectorySetFactory) {
             binaries.all(new Action<PlayApplicationBinarySpecInternal>() {
                 @Override
                 public void execute(PlayApplicationBinarySpecInternal playApplicationBinarySpec) {
@@ -108,18 +104,27 @@ public class PlayCoffeeScriptPlugin implements Plugin<Project> {
     }
 
     private static class CoffeeScript implements LanguageTransform<CoffeeScriptSourceSet, JavaScriptSourceCode> {
+        @Override
+        public String getLanguageName() {
+            return "coffeeScript";
+        }
+
+        @Override
         public Class<CoffeeScriptSourceSet> getSourceSetType() {
             return CoffeeScriptSourceSet.class;
         }
 
+        @Override
         public Class<JavaScriptSourceCode> getOutputType() {
             return JavaScriptSourceCode.class;
         }
 
+        @Override
         public Map<String, Class<?>> getBinaryTools() {
             return Collections.emptyMap();
         }
 
+        @Override
         public SourceTransformTaskConfig getTransformTask() {
             return new SourceTransformTaskConfig() {
                 public String getTaskPrefix() {
@@ -149,6 +154,7 @@ public class PlayCoffeeScriptPlugin implements Plugin<Project> {
             };
         }
 
+        @Override
         public boolean applyToBinary(BinarySpec binary) {
             return binary instanceof PlayApplicationBinarySpecInternal;
         }

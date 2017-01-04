@@ -19,10 +19,14 @@ package org.gradle.api.tasks.compile;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.gradle.api.Incubating;
+import org.gradle.api.Nullable;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.tasks.Console;
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.Optional;
+import org.gradle.util.DeprecationLogger;
 import org.gradle.util.SingleMessageLogger;
 
 import java.util.List;
@@ -71,6 +75,8 @@ public class CompileOptions extends AbstractOptions {
 
     private FileCollection sourcepath;
 
+    private FileCollection annotationProcessorPath;
+
     /**
      * Tells whether to fail the build when compilation fails. Defaults to {@code true}.
      */
@@ -89,6 +95,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to produce verbose output. Defaults to {@code false}.
      */
+    @Console
     public boolean isVerbose() {
         return verbose;
     }
@@ -103,6 +110,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to log the files to be compiled. Defaults to {@code false}.
      */
+    @Console
     public boolean isListFiles() {
         return listFiles;
     }
@@ -117,6 +125,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to log details of usage of deprecated members or classes. Defaults to {@code false}.
      */
+    @Console
     public boolean isDeprecation() {
         return deprecation;
     }
@@ -131,6 +140,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to log warning messages. The default is {@code true}.
      */
+    @Console
     public boolean isWarnings() {
         return warnings;
     }
@@ -197,6 +207,7 @@ public class CompileOptions extends AbstractOptions {
      * not necessarily mean that a new process will be created for each compile task.
      * Defaults to {@code false}.
      */
+    @Input
     public boolean isFork() {
         return fork;
     }
@@ -230,7 +241,10 @@ public class CompileOptions extends AbstractOptions {
      * Only takes effect if {@code useAnt} is {@code true}. Defaults to
      * {@code false}.
      */
+    @Input
+    @Deprecated
     public boolean isUseDepend() {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("CompileOptions.isUseDepend()");
         return useDepend;
     }
 
@@ -239,13 +253,16 @@ public class CompileOptions extends AbstractOptions {
      * Only takes effect if {@code useAnt} is {@code true}. Defaults to
      * {@code false}.
      */
+    @Deprecated
     public void setUseDepend(boolean useDepend) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("CompileOptions.setUseDepend()");
         this.useDepend = useDepend;
     }
 
     /**
      * Returns options for using the Ant {@code <depend>} task.
      */
+    @Nested
     public DependOptions getDependOptions() {
         return dependOptions;
     }
@@ -292,6 +309,13 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Returns any additional arguments to be passed to the compiler.
      * Defaults to the empty list.
+     *
+     * Compiler arguments not supported by the DSL can be added here. For example, it is possible
+     * to pass the {@code -release} option of JDK 9:
+     * <pre><code>compilerArgs.addAll(['-release', '7'])</code></pre>
+     *
+     * Note that if {@code -release} is added then {@code -target} and {@code -source}
+     * are ignored.
      */
     @Input
     public List<String> getCompilerArgs() {
@@ -330,17 +354,19 @@ public class CompileOptions extends AbstractOptions {
      * Convenience method to set {@link DependOptions} with named parameter syntax.
      * Calling this method will set {@code useDepend} to {@code true}.
      */
+    @Deprecated
     public CompileOptions depend(Map<String, Object> dependArgs) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("CompileOptions.depend()");
         useDepend = true;
         dependOptions.define(dependArgs);
         return this;
     }
 
-    @Incubating
     /**
      * Configure the java compilation to be incremental (e.g. compiles only those java classes that were changed or that are dependencies to the changed classes).
      * The feature is incubating and does not yet satisfies all compilation scenarios.
      */
+    @Incubating
     public CompileOptions setIncremental(boolean incremental) {
         SingleMessageLogger.incubatingFeatureUsed("Incremental java compilation");
         this.incremental = incremental;
@@ -350,6 +376,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Internal method.
      */
+    @Override
     public Map<String, Object> optionMap() {
         Map<String, Object> map = super.optionMap();
         map.putAll(debugOptions.optionMap());
@@ -384,6 +411,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * informs whether to use experimental incremental compilation feature. See {@link #setIncremental(boolean)}
      */
+    @Input
     @Incubating
     public boolean isIncremental() {
         return incremental;
@@ -420,6 +448,31 @@ public class CompileOptions extends AbstractOptions {
     @Incubating
     public void setSourcepath(FileCollection sourcepath) {
         this.sourcepath = sourcepath;
+    }
+
+    /**
+     * Returns the annotation processor path to use for compilation. The default value is {@code null}, which means use the compile classpath.
+     *
+     * @return The annotation processor path, or {@code null} to use the default.
+     * @since 3.4
+     */
+    @Optional
+    @Incubating
+    @Internal // Handled on the compile task
+    @Nullable
+    public FileCollection getAnnotationProcessorPath() {
+        return annotationProcessorPath;
+    }
+
+    /**
+     * Set the annotation processor path to use for compilation. The value can be {@code null}, which means use the compile classpath.
+     *
+     * @param annotationProcessorPath The annotation processor path, or {@code null} to use the default.
+     * @since 3.4
+     */
+    @Incubating
+    public void setAnnotationProcessorPath(@Nullable FileCollection annotationProcessorPath) {
+        this.annotationProcessorPath = annotationProcessorPath;
     }
 }
 

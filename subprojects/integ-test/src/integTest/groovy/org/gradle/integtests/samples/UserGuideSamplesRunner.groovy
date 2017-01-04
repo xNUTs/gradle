@@ -14,15 +14,23 @@
  * limitations under the License.
  */
 package org.gradle.integtests.samples
+
 import com.google.common.collect.ArrayListMultimap
 import groovy.io.PlatformLineWriter
 import org.apache.tools.ant.taskdefs.Delete
+import org.gradle.api.JavaVersion
 import org.gradle.api.Transformer
 import org.gradle.api.reporting.components.JvmComponentReportOutputFormatter
 import org.gradle.api.reporting.components.NativeComponentReportOutputFormatter
 import org.gradle.api.reporting.components.PlayComponentReportOutputFormatter
-import org.gradle.integtests.fixtures.executer.*
+import org.gradle.integtests.fixtures.AvailableJavaHomes
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import org.gradle.integtests.fixtures.executer.GradleDistribution
+import org.gradle.integtests.fixtures.executer.GradleExecuter
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
+import org.gradle.integtests.fixtures.executer.UnderDevelopmentGradleDistribution
 import org.gradle.internal.SystemProperties
+import org.gradle.internal.os.OperatingSystem
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.test.fixtures.maven.M2Installation
@@ -45,7 +53,7 @@ class UserGuideSamplesRunner extends Runner {
     private TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider()
     private GradleDistribution dist = new UnderDevelopmentGradleDistribution()
     private IntegrationTestBuildContext buildContext = new IntegrationTestBuildContext()
-    private GradleExecuter executer = new GradleContextualExecuter(dist, temporaryFolder)
+    private GradleExecuter executer = new GradleContextualExecuter(dist, temporaryFolder, buildContext)
     private Pattern dirFilter
     private List excludes
     private TestFile baseExecutionDir = temporaryFolder.testDirectory
@@ -149,7 +157,7 @@ class UserGuideSamplesRunner extends Runner {
             }
 
             if (run.allowDeprecation) {
-                executer.withDeprecationChecksDisabled()
+                executer.expectDeprecationWarning()
             }
 
             def result = run.expectFailure ? executer.runWithFailure() : executer.run()
@@ -240,10 +248,20 @@ class UserGuideSamplesRunner extends Runner {
         samplesByDir.get('userguide/tasks/finalizersWithFailure')*.expectFailure = true
         samplesByDir.get('userguide/multiproject/dependencies/firstMessages/messages')*.brokenForParallel = true
         samplesByDir.get('userguide/multiproject/dependencies/messagesHack/messages')*.brokenForParallel = true
+        samplesByDir.get('userguide/tutorial/helloShortcut')*.allowDeprecation = true
+        samplesByDir.get('webApplication/customized')*.allowDeprecation = true
+        samplesByDir.get('webApplication/quickstart')*.allowDeprecation = true
 
-        def sonarSamples = samplesByDir.values().findAll { it.subDir.startsWith("sonar") }
-        assert sonarSamples
-        sonarSamples*.allowDeprecation = true
+        def java6CrossCompilation = ['java', 'groovy', 'scala'].collectMany {
+            samplesByDir.get(it + '/crossCompilation')
+        }
+
+        def java6jdk = AvailableJavaHomes.getJdk(JavaVersion.VERSION_1_6)
+        if (!java6jdk || OperatingSystem.current().isWindows()) {
+            java6CrossCompilation*.expectFailure = true
+        } else {
+            java6CrossCompilation*.args = ['build', "-Pjava6Home=${java6jdk.javaHome.absolutePath}"]
+        }
 
         Map<String, SampleRun> samplesById = new TreeMap<String, SampleRun>()
 
@@ -285,7 +303,7 @@ class UserGuideSamplesRunner extends Runner {
 
     private void assertSamplesGenerated(boolean assertion) {
         assert assertion: """Couldn't find any samples. Most likely, samples.xml was not generated.
-Please run 'gradle docs:userguideDocbook' first"""
+Please run 'gradle docs:extractSamples' first"""
     }
 
     private class GradleRun {

@@ -14,19 +14,16 @@
  * limitations under the License.
  */
 
-
 package org.gradle.language
 
 import org.apache.commons.lang.RandomStringUtils
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.nativeplatform.fixtures.app.HelloWorldApp
-import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 import spock.lang.Ignore
 
-@LeaksFileHandles
 abstract class AbstractNativeLanguageIntegrationTest extends AbstractInstalledToolChainIntegrationSpec {
 
     abstract HelloWorldApp getHelloWorldApp()
@@ -246,12 +243,42 @@ abstract class AbstractNativeLanguageIntegrationTest extends AbstractInstalledTo
         install.exec().out == helloWorldApp.frenchOutput
     }
 
+    def "link order is stable across project directories for the same sources"() {
+        def firstCopy = file("firstDir")
+        def secondCopy = file("secondDir")
+        [ firstCopy, secondCopy ].each { projectDir ->
+            def buildFile = projectDir.file("build.gradle")
+            buildFile << helloWorldApp.pluginScript
+            buildFile << helloWorldApp.extraConfiguration
+            buildFile << """
+            model {
+                components {
+                    main(NativeExecutableSpec)
+                }
+            }
+        """
+            helloWorldApp.writeSources(projectDir.file("src/main"))
+        }
+        when:
+        executer.usingProjectDirectory(firstCopy)
+        succeeds("mainExecutable")
+        and:
+        executer.usingProjectDirectory(secondCopy)
+        succeeds("mainExecutable")
+        then:
+        def firstOptions = linkerOptionsFor("linkMainExecutable", firstCopy)
+        def secondOptions = linkerOptionsFor("linkMainExecutable", secondCopy)
+        def firstOptionsOrder = firstOptions.linkedObjects().collect { it.name }
+        def secondOptionsOrder = secondOptions.linkedObjects().collect { it.name }
+        firstOptionsOrder == secondOptionsOrder
+    }
+
     @Ignore
     def "can run project in extended nested file paths"() {
         // windows can't handle a path up to 260 characters
         // we create a path that ends up with build folder longer than is 260
         def projectPathOffset = 180 - testDirectory.getAbsolutePath().length()
-        def nestedProjectPath = RandomStringUtils.randomAlphanumeric(projectPathOffset-10) + "/123456789"
+        def nestedProjectPath = RandomStringUtils.randomAlphanumeric(projectPathOffset - 10) + "/123456789"
 
         setup:
         def deepNestedProjectFolder = file(nestedProjectPath)
@@ -268,7 +295,7 @@ abstract class AbstractNativeLanguageIntegrationTest extends AbstractInstalledTo
         """
 
         and:
-        helloWorldApp.writeSources(file("$nestedProjectPath/src/main"));
+        helloWorldApp.writeSources(file("$nestedProjectPath/src/main"))
 
         expect:
         succeeds "mainExecutable"

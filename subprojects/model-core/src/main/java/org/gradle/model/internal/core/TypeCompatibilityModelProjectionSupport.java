@@ -48,6 +48,7 @@ public abstract class TypeCompatibilityModelProjectionSupport<M> implements Mode
             || (targetType == ModelType.UNTYPED && isPrimitiveType(type));
     }
 
+    @Override
     public <T> ModelView<? extends T> asMutable(ModelType<T> type, MutableModelNode modelNode, ModelRuleDescriptor ruleDescriptor) {
         if (canBeViewedAs(type)) {
             return Cast.uncheckedCast(toView(modelNode, ruleDescriptor, true));
@@ -56,6 +57,7 @@ public abstract class TypeCompatibilityModelProjectionSupport<M> implements Mode
         }
     }
 
+    @Override
     public <T> ModelView<? extends T> asImmutable(ModelType<T> type, MutableModelNode modelNode, ModelRuleDescriptor ruleDescriptor) {
         if (canBeViewedAs(type)) {
             return Cast.uncheckedCast(toView(modelNode, ruleDescriptor, false));
@@ -84,24 +86,6 @@ public abstract class TypeCompatibilityModelProjectionSupport<M> implements Mode
             return type.toString();
         }
         return type.toString() + " (or assignment compatible type thereof)";
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-
-        TypeCompatibilityModelProjectionSupport<?> that = (TypeCompatibilityModelProjectionSupport<?>) o;
-        return type.equals(that.type);
-    }
-
-    @Override
-    public int hashCode() {
-        return type.hashCode();
     }
 
     @Override

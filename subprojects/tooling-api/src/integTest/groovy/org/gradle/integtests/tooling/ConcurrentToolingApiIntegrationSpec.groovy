@@ -23,7 +23,7 @@ import org.gradle.integtests.fixtures.versions.ReleasedVersionDistributions
 import org.gradle.integtests.tooling.fixture.ConfigurableOperation
 import org.gradle.integtests.tooling.fixture.ToolingApi
 import org.gradle.internal.classpath.ClassPath
-import org.gradle.logging.ProgressLoggerFactory
+import org.gradle.internal.logging.progress.ProgressLoggerFactory
 import org.gradle.test.fixtures.ConcurrentTestUtil
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
@@ -157,7 +157,7 @@ project.description = text
     def "handles standard input concurrently when running build"() {
         when:
         threads.times { idx ->
-            file("build$idx/build.gradle") << "task show << { println System.in.text}"
+            file("build$idx/build.gradle") << "task show { doLast { println System.in.text} }"
         }
 
         then:

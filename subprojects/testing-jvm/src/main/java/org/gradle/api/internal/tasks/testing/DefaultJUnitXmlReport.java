@@ -18,7 +18,6 @@ package org.gradle.api.internal.tasks.testing;
 
 import org.gradle.api.Task;
 import org.gradle.api.reporting.internal.TaskGeneratedSingleDirectoryReport;
-import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.testing.JUnitXmlReport;
 
 public class DefaultJUnitXmlReport extends TaskGeneratedSingleDirectoryReport implements JUnitXmlReport {
@@ -29,11 +28,12 @@ public class DefaultJUnitXmlReport extends TaskGeneratedSingleDirectoryReport im
         super(name, task, null);
     }
 
-    @Input
+    @Override
     public boolean isOutputPerTestCase() {
         return outputPerTestCase;
     }
 
+    @Override
     public void setOutputPerTestCase(boolean outputPerTestCase) {
         this.outputPerTestCase = outputPerTestCase;
     }

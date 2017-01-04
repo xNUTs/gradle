@@ -20,11 +20,14 @@ import groovy.lang.Closure;
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.Incubating;
-import org.gradle.api.file.*;
+import org.gradle.api.JavaVersion;
+import org.gradle.api.file.FileCollection;
+import org.gradle.api.file.FileTree;
+import org.gradle.api.file.FileTreeElement;
+import org.gradle.api.internal.ClosureBackedAction;
 import org.gradle.api.internal.ConventionTask;
+import org.gradle.api.internal.classpath.ModuleRegistry;
 import org.gradle.api.internal.file.FileResolver;
-import org.gradle.api.internal.file.FileTreeElementComparator;
-import org.gradle.api.internal.file.FileTreeElementHasher;
 import org.gradle.api.internal.initialization.loadercache.ClassLoaderCache;
 import org.gradle.api.internal.tasks.options.Option;
 import org.gradle.api.internal.tasks.testing.DefaultTestTaskReports;
@@ -37,8 +40,20 @@ import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
 import org.gradle.api.internal.tasks.testing.junit.JUnitTestFramework;
 import org.gradle.api.internal.tasks.testing.junit.report.DefaultTestReport;
 import org.gradle.api.internal.tasks.testing.junit.report.TestReporter;
-import org.gradle.api.internal.tasks.testing.junit.result.*;
-import org.gradle.api.internal.tasks.testing.logging.*;
+import org.gradle.api.internal.tasks.testing.junit.result.Binary2JUnitXmlReportGenerator;
+import org.gradle.api.internal.tasks.testing.junit.result.InMemoryTestResultsProvider;
+import org.gradle.api.internal.tasks.testing.junit.result.TestClassResult;
+import org.gradle.api.internal.tasks.testing.junit.result.TestOutputAssociation;
+import org.gradle.api.internal.tasks.testing.junit.result.TestOutputStore;
+import org.gradle.api.internal.tasks.testing.junit.result.TestReportDataCollector;
+import org.gradle.api.internal.tasks.testing.junit.result.TestResultSerializer;
+import org.gradle.api.internal.tasks.testing.junit.result.TestResultsProvider;
+import org.gradle.api.internal.tasks.testing.logging.DefaultTestLoggingContainer;
+import org.gradle.api.internal.tasks.testing.logging.FullExceptionFormatter;
+import org.gradle.api.internal.tasks.testing.logging.ShortExceptionFormatter;
+import org.gradle.api.internal.tasks.testing.logging.TestCountLogger;
+import org.gradle.api.internal.tasks.testing.logging.TestEventLogger;
+import org.gradle.api.internal.tasks.testing.logging.TestExceptionFormatter;
 import org.gradle.api.internal.tasks.testing.results.StateTrackingTestResultProcessor;
 import org.gradle.api.internal.tasks.testing.results.TestListenerAdapter;
 import org.gradle.api.internal.tasks.testing.results.TestListenerInternal;
@@ -47,30 +62,48 @@ import org.gradle.api.logging.LogLevel;
 import org.gradle.api.reporting.DirectoryReport;
 import org.gradle.api.reporting.Reporting;
 import org.gradle.api.specs.Spec;
-import org.gradle.api.tasks.*;
+import org.gradle.api.tasks.CacheableTask;
+import org.gradle.api.tasks.Classpath;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.Nested;
+import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.ParallelizableTask;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.VerificationTask;
 import org.gradle.api.tasks.testing.logging.TestLogging;
 import org.gradle.api.tasks.testing.logging.TestLoggingContainer;
 import org.gradle.api.tasks.util.PatternFilterable;
-import org.gradle.internal.Factory;
+import org.gradle.internal.actor.ActorFactory;
 import org.gradle.internal.concurrent.CompositeStoppable;
 import org.gradle.internal.event.ListenerBroadcast;
 import org.gradle.internal.event.ListenerManager;
+import org.gradle.internal.jvm.UnsupportedJavaRuntimeException;
+import org.gradle.internal.jvm.inspection.JvmVersionDetector;
+import org.gradle.internal.logging.ConsoleRenderer;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
+import org.gradle.internal.logging.text.StyledTextOutputFactory;
+import org.gradle.internal.operations.BuildOperationProcessor;
+import org.gradle.internal.operations.BuildOperationWorkerRegistry;
+import org.gradle.internal.progress.BuildOperationExecutor;
 import org.gradle.internal.reflect.Instantiator;
+import org.gradle.internal.remote.internal.inet.InetAddressFactory;
 import org.gradle.listener.ClosureBackedMethodInvocationDispatch;
-import org.gradle.logging.ConsoleRenderer;
-import org.gradle.logging.ProgressLoggerFactory;
-import org.gradle.logging.StyledTextOutputFactory;
-import org.gradle.messaging.actor.ActorFactory;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.process.ProcessForkOptions;
 import org.gradle.process.internal.DefaultJavaForkOptions;
-import org.gradle.process.internal.WorkerProcessBuilder;
+import org.gradle.process.internal.worker.WorkerProcessFactory;
 import org.gradle.util.ConfigureUtil;
 
 import javax.inject.Inject;
 import java.io.File;
-import java.util.*;
-import java.util.concurrent.Callable;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Executes JUnit (3.8.x or 4.x) or TestNG tests. Test are always run in (one or more) separate JVMs.
@@ -118,6 +151,7 @@ import java.util.concurrent.Callable;
  * </pre>
 
  */
+@CacheableTask
 @ParallelizableTask
 public class Test extends ConventionTask implements JavaForkOptions, PatternFilterable, VerificationTask, Reporting<TestTaskReports> {
 
@@ -129,7 +163,6 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     private final DefaultTestFilter filter;
 
     private TestExecuter testExecuter;
-    private List<File> testSrcDirs = new ArrayList<File>();
     private File testClassesDir;
     private File binResultsDir;
     private PatternFilterable patternSet;
@@ -140,9 +173,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     private long forkEvery;
     private int maxParallelForks = 1;
     private TestReporter testReporter;
-
-    @Nested
-    private final DefaultTestTaskReports reports;
+    private final TestTaskReports reports;
 
     public Test() {
         patternSet = getFileResolver().getPatternSetFactory().create();
@@ -160,8 +191,11 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
         reports.getHtml().setEnabled(true);
 
         filter = instantiator.newInstance(DefaultTestFilter.class);
+    }
 
-        addCandidateClassFilesHashProperty();
+    @Inject
+    protected InetAddressFactory getInetAddressFactory() {
+        throw new UnsupportedOperationException();
     }
 
     @Inject
@@ -185,7 +219,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     }
 
     @Inject
-    protected Factory<WorkerProcessBuilder> getProcessBuilderFactory() {
+    protected WorkerProcessFactory getProcessBuilderFactory() {
         throw new UnsupportedOperationException();
     }
 
@@ -204,6 +238,16 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
         throw new UnsupportedOperationException();
     }
 
+    @Inject
+    protected BuildOperationProcessor getBuildOperationProcessor() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Inject
+    protected ModuleRegistry getModuleRegistry() {
+        throw new UnsupportedOperationException();
+    }
+
     /**
      * ATM. for testing only
      */
@@ -215,14 +259,17 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
         this.testExecuter = testExecuter;
     }
 
+    @Internal
     ListenerBroadcast<TestListener> getTestListenerBroadcaster() {
         return testListenerBroadcaster;
     }
 
+    @Internal
     ListenerBroadcast<TestListenerInternal> getTestListenerInternalBroadcaster() {
         return testListenerInternalBroadcaster;
     }
 
+    @Internal
     ListenerBroadcast<TestOutputListener> getTestOutputListenerBroadcaster() {
         return testOutputListenerBroadcaster;
     }
@@ -230,7 +277,8 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
-    @Input
+    @Override
+    @Internal
     public File getWorkingDir() {
         return forkOptions.getWorkingDir();
     }
@@ -238,6 +286,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setWorkingDir(Object dir) {
         forkOptions.setWorkingDir(dir);
     }
@@ -245,15 +294,25 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test workingDir(Object dir) {
         forkOptions.workingDir(dir);
         return this;
     }
 
     /**
-     * {@inheritDoc}
+     * Returns the version of Java used to run the tests based on the executable specified by {@link #getExecutable()}.
      */
     @Input
+    public JavaVersion getJavaVersion() {
+        return getServices().get(JvmVersionDetector.class).getJavaVersion(getExecutable());
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Internal
     public String getExecutable() {
         return forkOptions.getExecutable();
     }
@@ -261,6 +320,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test executable(Object executable) {
         forkOptions.executable(executable);
         return this;
@@ -269,6 +329,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setExecutable(Object executable) {
         forkOptions.setExecutable(executable);
     }
@@ -276,7 +337,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
-    @Input
+    @Override
     public Map<String, Object> getSystemProperties() {
         return forkOptions.getSystemProperties();
     }
@@ -284,6 +345,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setSystemProperties(Map<String, ?> properties) {
         forkOptions.setSystemProperties(properties);
     }
@@ -291,6 +353,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test systemProperties(Map<String, ?> properties) {
         forkOptions.systemProperties(properties);
         return this;
@@ -299,6 +362,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test systemProperty(String name, Object value) {
         forkOptions.systemProperty(name, value);
         return this;
@@ -307,7 +371,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
-    @Input
+    @Override
     public FileCollection getBootstrapClasspath() {
         return forkOptions.getBootstrapClasspath();
     }
@@ -315,6 +379,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setBootstrapClasspath(FileCollection classpath) {
         forkOptions.setBootstrapClasspath(classpath);
     }
@@ -322,6 +387,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test bootstrapClasspath(Object... classpath) {
         forkOptions.bootstrapClasspath(classpath);
         return this;
@@ -330,6 +396,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public String getMinHeapSize() {
         return forkOptions.getMinHeapSize();
     }
@@ -337,6 +404,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public String getDefaultCharacterEncoding() {
         return forkOptions.getDefaultCharacterEncoding();
     }
@@ -344,6 +412,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setDefaultCharacterEncoding(String defaultCharacterEncoding) {
         forkOptions.setDefaultCharacterEncoding(defaultCharacterEncoding);
     }
@@ -351,6 +420,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setMinHeapSize(String heapSize) {
         forkOptions.setMinHeapSize(heapSize);
     }
@@ -358,6 +428,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public String getMaxHeapSize() {
         return forkOptions.getMaxHeapSize();
     }
@@ -365,6 +436,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setMaxHeapSize(String heapSize) {
         forkOptions.setMaxHeapSize(heapSize);
     }
@@ -372,7 +444,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
-    @Input
+    @Override
     public List<String> getJvmArgs() {
         return forkOptions.getJvmArgs();
     }
@@ -380,6 +452,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setJvmArgs(Iterable<?> arguments) {
         forkOptions.setJvmArgs(arguments);
     }
@@ -387,6 +460,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test jvmArgs(Iterable<?> arguments) {
         forkOptions.jvmArgs(arguments);
         return this;
@@ -395,6 +469,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test jvmArgs(Object... arguments) {
         forkOptions.jvmArgs(arguments);
         return this;
@@ -403,7 +478,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
-    @Input
+    @Override
     public boolean getEnableAssertions() {
         return forkOptions.getEnableAssertions();
     }
@@ -411,6 +486,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setEnableAssertions(boolean enabled) {
         forkOptions.setEnableAssertions(enabled);
     }
@@ -418,6 +494,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public boolean getDebug() {
         return forkOptions.getDebug();
     }
@@ -425,6 +502,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     @Option(option = "debug-jvm", description = "Enable debugging for the test process. The process is started suspended and listening on port 5005. [INCUBATING]")
     public void setDebug(boolean enabled) {
         forkOptions.setDebug(enabled);
@@ -433,6 +511,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public List<String> getAllJvmArgs() {
         return forkOptions.getAllJvmArgs();
     }
@@ -440,6 +519,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setAllJvmArgs(Iterable<?> arguments) {
         forkOptions.setAllJvmArgs(arguments);
     }
@@ -447,6 +527,8 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
+    @Internal
     public Map<String, Object> getEnvironment() {
         return forkOptions.getEnvironment();
     }
@@ -454,6 +536,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test environment(Map<String, ?> environmentVariables) {
         forkOptions.environment(environmentVariables);
         return this;
@@ -462,6 +545,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test environment(String name, Object value) {
         forkOptions.environment(name, value);
         return this;
@@ -470,6 +554,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setEnvironment(Map<String, ?> environmentVariables) {
         forkOptions.setEnvironment(environmentVariables);
     }
@@ -477,6 +562,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test copyTo(ProcessForkOptions target) {
         forkOptions.copyTo(target);
         return this;
@@ -485,6 +571,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test copyTo(JavaForkOptions target) {
         forkOptions.copyTo(target);
         return this;
@@ -492,7 +579,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
 
     @TaskAction
     public void executeTests() {
-        LogLevel currentLevel = getCurrentLogLevel();
+        LogLevel currentLevel = determineCurrentLogLevel();
         TestLogging levelLogging = testLogging.get(currentLevel);
         TestExceptionFormatter exceptionFormatter = getExceptionFormatter(levelLogging);
         TestEventLogger eventLogger = new TestEventLogger(getTextOutputFactory(), currentLevel, levelLogging, exceptionFormatter);
@@ -523,7 +610,12 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
         TestResultProcessor resultProcessor = new StateTrackingTestResultProcessor(testListenerInternalBroadcaster.getSource());
 
         if (testExecuter == null) {
-            testExecuter = new DefaultTestExecuter(getProcessBuilderFactory(), getActorFactory());
+            testExecuter = new DefaultTestExecuter(getProcessBuilderFactory(), getActorFactory(), getModuleRegistry(), getServices().get(BuildOperationWorkerRegistry.class), getServices().get(BuildOperationExecutor.class));
+        }
+
+        JavaVersion javaVersion = getJavaVersion();
+        if (!javaVersion.isJava6Compatible()) {
+            throw new UnsupportedJavaRuntimeException("Support for test execution using Java 5 or earlier was removed in Gradle 3.0.");
         }
 
         try {
@@ -538,11 +630,11 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
 
         new TestResultSerializer(binaryResultsDir).write(results.values());
 
-        TestResultsProvider testResultsProvider = new InMemoryTestResultsProvider(results.values(), testOutputStore.reader());
+        TestResultsProvider testResultsProvider = new InMemoryTestResultsProvider(results.values(), testOutputStore);
 
         try {
             if (testReporter == null) {
-                testReporter = new DefaultTestReport();
+                testReporter = new DefaultTestReport(getBuildOperationProcessor());
             }
 
             JUnitXmlReport junitXml = reports.getJunitXml();
@@ -550,7 +642,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
                 TestOutputAssociation outputAssociation = junitXml.isOutputPerTestCase()
                         ? TestOutputAssociation.WITH_TESTCASE
                         : TestOutputAssociation.WITH_SUITE;
-                Binary2JUnitXmlReportGenerator binary2JUnitXmlReportGenerator = new Binary2JUnitXmlReportGenerator(junitXml.getDestination(), testResultsProvider, outputAssociation);
+                Binary2JUnitXmlReportGenerator binary2JUnitXmlReportGenerator = new Binary2JUnitXmlReportGenerator(junitXml.getDestination(), testResultsProvider, outputAssociation, getBuildOperationProcessor(), getInetAddressFactory().getHostname());
                 binary2JUnitXmlReportGenerator.generate();
             }
 
@@ -671,6 +763,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @see #setIncludes(Iterable)
      */
+    @Override
     public Test include(String... includes) {
         patternSet.include(includes);
         return this;
@@ -681,6 +774,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @see #setIncludes(Iterable)
      */
+    @Override
     public Test include(Iterable<String> includes) {
         patternSet.include(includes);
         return this;
@@ -689,6 +783,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test include(Spec<FileTreeElement> includeSpec) {
         patternSet.include(includeSpec);
         return this;
@@ -697,6 +792,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test include(Closure includeSpec) {
         patternSet.include(includeSpec);
         return this;
@@ -707,6 +803,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @see #setExcludes(Iterable)
      */
+    @Override
     public Test exclude(String... excludes) {
         patternSet.exclude(excludes);
         return this;
@@ -717,6 +814,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @see #setExcludes(Iterable)
      */
+    @Override
     public Test exclude(Iterable<String> excludes) {
         patternSet.exclude(excludes);
         return this;
@@ -725,6 +823,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test exclude(Spec<FileTreeElement> excludeSpec) {
         patternSet.exclude(excludeSpec);
         return this;
@@ -733,6 +832,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public Test exclude(Closure excludeSpec) {
         patternSet.exclude(excludeSpec);
         return this;
@@ -747,8 +847,8 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      */
     @Option(option = "tests", description = "Sets test class or method name to be included, '*' is supported.")
     @Incubating
-    public Test setTestNameIncludePattern(String testNamePattern) {
-        filter.setIncludePatterns(testNamePattern);
+    public Test setTestNameIncludePatterns(List<String> testNamePattern) {
+        filter.setIncludePatterns(testNamePattern.toArray(new String[]{}));
         return this;
     }
 
@@ -757,6 +857,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @return All test class directories to be used.
      */
+    @Internal
     public File getTestClassesDir() {
         return testClassesDir;
     }
@@ -796,6 +897,8 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @see #include(String...)
      */
+    @Override
+    @Internal
     public Set<String> getIncludes() {
         return patternSet.getIncludes();
     }
@@ -806,6 +909,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      * @param includes The patterns list
      * @see #include(String...)
      */
+    @Override
     public Test setIncludes(Iterable<String> includes) {
         patternSet.setIncludes(includes);
         return this;
@@ -816,6 +920,8 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @see #exclude(String...)
      */
+    @Override
+    @Internal
     public Set<String> getExcludes() {
         return patternSet.getExcludes();
     }
@@ -826,6 +932,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      * @param excludes The patterns list
      * @see #exclude(String...)
      */
+    @Override
     public Test setExcludes(Iterable<String> excludes) {
         patternSet.setExcludes(excludes);
         return this;
@@ -834,6 +941,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     @Input
     public boolean getIgnoreFailures() {
         return ignoreFailures;
@@ -842,10 +950,12 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * {@inheritDoc}
      */
+    @Override
     public void setIgnoreFailures(boolean ignoreFailures) {
         this.ignoreFailures = ignoreFailures;
     }
 
+    @Internal
     public TestFramework getTestFramework() {
         return testFramework(null);
     }
@@ -864,6 +974,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      * @return The test framework options.
      */
     @Nested
+    // TODO:LPTR This doesn't resolve any of the nested options for the concrete subtypes
     public TestFrameworkOptions getOptions() {
         return options(null);
     }
@@ -911,7 +1022,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      * @param testFrameworkConfigure A closure used to configure the JUnit options.
      */
     public void useJUnit(Closure testFrameworkConfigure) {
-        useTestFramework(new JUnitTestFramework(this, filter, getClassLoaderCache()), testFrameworkConfigure);
+        useTestFramework(new JUnitTestFramework(this, filter), testFrameworkConfigure);
     }
 
     /**
@@ -934,25 +1045,13 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     /**
      * Returns the classpath to use to execute the tests.
      */
-    @InputFiles
+    @Classpath
     public FileCollection getClasspath() {
         return classpath;
     }
 
     public void setClasspath(FileCollection classpath) {
         this.classpath = classpath;
-    }
-
-    /**
-     * Returns the directories containing the test source.
-     */
-    @InputFiles
-    public List<File> getTestSrcDirs() {
-        return testSrcDirs;
-    }
-
-    public void setTestSrcDirs(List<File> testSrcDir) {
-        this.testSrcDirs = testSrcDir;
     }
 
     /**
@@ -973,6 +1072,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @return The maximum number of test classes. Returns 0 when there is no maximum.
      */
+    @Internal
     public long getForkEvery() {
         return forkEvery;
     }
@@ -994,6 +1094,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @return The maximum number of forked test processes.
      */
+    @Internal
     public int getMaxParallelForks() {
         return getDebug() ? 1 : maxParallelForks;
     }
@@ -1015,35 +1116,10 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @return The candidate class files.
      */
+    @PathSensitive(PathSensitivity.RELATIVE)
     @InputFiles
     public FileTree getCandidateClassFiles() {
         return getProject().fileTree(getTestClassesDir()).matching(patternSet);
-    }
-
-    private void addCandidateClassFilesHashProperty() {
-        // force tests to run when the set of candidate class files changes
-        getInputs().property("candidateClassFilesHash", new Callable<Integer>() {
-            Integer candidateClassFilesHash;
-
-            @Override
-            public Integer call() throws Exception {
-                if (candidateClassFilesHash == null) {
-                    candidateClassFilesHash = calculateCandidateClassFilesHash();
-                }
-                return candidateClassFilesHash;
-            }
-        });
-    }
-
-    private Integer calculateCandidateClassFilesHash() {
-        final SortedSet<FileTreeElement> sortedFiles = new TreeSet<FileTreeElement>(FileTreeElementComparator.INSTANCE);
-        getCandidateClassFiles().visit(new EmptyFileVisitor() {
-            @Override
-            public void visitFile(FileVisitDetails fileDetails) {
-                sortedFiles.add(fileDetails);
-            }
-        });
-        return FileTreeElementHasher.calculateHashForFilePaths(sortedFiles);
     }
 
     /**
@@ -1057,6 +1133,8 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @return this
      */
+    @Internal
+    // TODO:LPTR Should be @Nested with @Console inside
     public TestLoggingContainer getTestLogging() {
         return testLogging;
     }
@@ -1077,6 +1155,8 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      *
      * @return The reports that this task potentially produces
      */
+    @Nested
+    @Override
     public TestTaskReports getReports() {
         return reports;
     }
@@ -1087,8 +1167,21 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
      * @param closure The configuration
      * @return The reports that this task potentially produces
      */
+    @Override
     public TestTaskReports reports(Closure closure) {
-        reports.configure(closure);
+        return reports(new ClosureBackedAction<TestTaskReports>(closure));
+    }
+
+    /**
+     * Configures the reports that this task potentially produces.
+     *
+     *
+     * @param configureAction The configuration
+     * @return The reports that this task potentially produces
+     */
+    @Override
+    public TestTaskReports reports(Action<? super TestTaskReports> configureAction) {
+        configureAction.execute(reports);
         return reports;
     }
 
@@ -1116,7 +1209,7 @@ public class Test extends ConventionTask implements JavaForkOptions, PatternFilt
     }
 
     // only way I know of to determine current log level
-    private LogLevel getCurrentLogLevel() {
+    private LogLevel determineCurrentLogLevel() {
         for (LogLevel level : LogLevel.values()) {
             if (getLogger().isEnabled(level)) {
                 return level;

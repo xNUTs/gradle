@@ -28,15 +28,14 @@ import org.gradle.tooling.internal.protocol.InternalUnsupportedModelException;
 import org.gradle.tooling.internal.protocol.ModelIdentifier;
 import org.gradle.tooling.model.internal.Exceptions;
 
-public class CancellableModelBuilderBackedModelProducer extends HasCompatibilityMapperAction implements ModelProducer {
-    private final ProtocolToModelAdapter adapter;
-    private final VersionDetails versionDetails;
-    private final ModelMapping modelMapping;
+public class CancellableModelBuilderBackedModelProducer extends HasCompatibilityMapping implements ModelProducer {
+    protected final ProtocolToModelAdapter adapter;
+    protected final VersionDetails versionDetails;
+    protected final ModelMapping modelMapping;
     private final InternalCancellableConnection builder;
-    private final Transformer<RuntimeException, RuntimeException> exceptionTransformer;
+    protected final Transformer<RuntimeException, RuntimeException> exceptionTransformer;
 
     public CancellableModelBuilderBackedModelProducer(ProtocolToModelAdapter adapter, VersionDetails versionDetails, ModelMapping modelMapping, InternalCancellableConnection builder, Transformer<RuntimeException, RuntimeException> exceptionTransformer) {
-        super(versionDetails);
         this.adapter = adapter;
         this.versionDetails = versionDetails;
         this.modelMapping = modelMapping;
@@ -57,6 +56,6 @@ public class CancellableModelBuilderBackedModelProducer extends HasCompatibility
         } catch (RuntimeException e) {
             throw exceptionTransformer.transform(e);
         }
-        return adapter.adapt(type, result.getModel(), getCompatibilityMapperAction());
+        return applyCompatibilityMapping(adapter.builder(type), operationParameters).build(result.getModel());
     }
 }

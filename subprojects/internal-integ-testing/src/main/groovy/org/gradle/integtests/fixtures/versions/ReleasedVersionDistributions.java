@@ -38,18 +38,23 @@ import static org.gradle.util.CollectionUtils.sort;
  */
 public class ReleasedVersionDistributions {
 
-    private final IntegrationTestBuildContext buildContext = new IntegrationTestBuildContext();
+    private final IntegrationTestBuildContext buildContext;
 
     private final Factory<Properties> versionsFactory;
     private Properties properties;
     private List<GradleDistribution> distributions;
 
     public ReleasedVersionDistributions() {
-        this(new ClasspathVersionSource());
+        this(IntegrationTestBuildContext.INSTANCE);
     }
 
-    ReleasedVersionDistributions(Factory<Properties> versionsFactory) {
+    public ReleasedVersionDistributions(IntegrationTestBuildContext buildContext) {
+        this(new ClasspathVersionSource(), buildContext);
+    }
+
+    ReleasedVersionDistributions(Factory<Properties> versionsFactory, IntegrationTestBuildContext buildContext) {
         this.versionsFactory = versionsFactory;
+        this.buildContext = buildContext;
     }
 
     private Properties getProperties() {
@@ -91,10 +96,28 @@ public class ReleasedVersionDistributions {
         return distributions;
     }
 
+    public List<GradleDistribution> getSupported() {
+        final GradleVersion firstSupported = GradleVersion.version("1.0");
+        return CollectionUtils.filter(getAll(), new Spec<GradleDistribution>() {
+            @Override
+            public boolean isSatisfiedBy(GradleDistribution element) {
+                return element.getVersion().compareTo(firstSupported) >= 0;
+            }
+        });
+    }
+
     public GradleDistribution getDistribution(final GradleVersion gradleVersion) {
         return findFirst(getAll(), new Spec<GradleDistribution>() {
             public boolean isSatisfiedBy(GradleDistribution element) {
                 return element.getVersion().equals(gradleVersion);
+            }
+        });
+    }
+
+    public GradleDistribution getDistribution(final String gradleVersion) {
+        return findFirst(getAll(), new Spec<GradleDistribution>() {
+            public boolean isSatisfiedBy(GradleDistribution element) {
+                return element.getVersion().getVersion().equals(gradleVersion);
             }
         });
     }

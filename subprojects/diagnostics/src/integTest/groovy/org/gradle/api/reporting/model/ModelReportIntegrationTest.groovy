@@ -36,6 +36,7 @@ class ModelReportIntegrationTest extends AbstractIntegrationSpec {
                     components(nodeValue: "task ':components'", type: 'org.gradle.api.reporting.components.ComponentReport')
                     dependencies()
                     dependencyInsight()
+                    dependentComponents()
                     help()
                     init()
                     model()
@@ -136,7 +137,7 @@ model {
 
                 primitiveBoolean(nodeValue: 'false')
                 primitiveByte(nodeValue: '0')
-                primitiveChar(nodeValue: '\u0000' as char)
+                primitiveChar(nodeValue: '')
                 primitiveDouble(nodeValue: '0.0')
                 primitiveFloat(nodeValue: '0.0')
                 primitiveInt(nodeValue: '0')
@@ -311,7 +312,13 @@ model {
           | Value:  \ttask ':dependencyInsight'
           | Creator: \ttasks.addPlaceholderAction(dependencyInsight)
           | Rules:
-             ⤷ HelpTasksPlugin.Rules#addDefaultDependenciesReportConfiguration
+             ⤷ HelpTasksPlugin.Rules#addDefaultDependenciesReportConfiguration(DependencyInsightReportTask, ServiceRegistry)
+             ⤷ copyToTaskContainer
+    + dependentComponents
+          | Type:   \torg.gradle.api.reporting.dependents.DependentComponentsReport
+          | Value:  \ttask ':dependentComponents'
+          | Creator: \ttasks.addPlaceholderAction(dependentComponents)
+          | Rules:
              ⤷ copyToTaskContainer
     + help
           | Type:   \torg.gradle.configuration.Help
@@ -401,15 +408,15 @@ apply plugin: ClassHolder.InnerRules
 
         then:
         def modelNode = ModelReportOutput.from(output).modelNode
-        modelNode.myNumbers.@creator[0] == 'NumberRules#createRule'
+        modelNode.myNumbers.@creator[0] == 'NumberRules#createRule(Numbers)'
 
         int i = 0
         def rules = modelNode.myNumbers.@rules[0]
-        rules[i++] == 'NumberRules#defaultsRule'
-        rules[i++] == 'NumberRules#mutateRule'
-        rules[i++] == 'ClassHolder.InnerRules#mutateRule'
-        rules[i++] == 'NumberRules#finalizeRule'
-        rules[i] == 'NumberRules#validateRule'
+        rules[i++] == 'NumberRules#defaultsRule(Numbers)'
+        rules[i++] == 'NumberRules#mutateRule(Numbers)'
+        rules[i++] == 'ClassHolder.InnerRules#mutateRule(Numbers)'
+        rules[i++] == 'NumberRules#finalizeRule(Numbers)'
+        rules[i] == 'NumberRules#validateRule(Numbers)'
     }
 
     def "hidden nodes are not displayed on the report"() {
@@ -454,12 +461,12 @@ apply plugin: ClassHolder.InnerRules
 
             class RegisterComponentRules extends RuleSource {
                 @ComponentType
-                void register1(ComponentTypeBuilder<UnmanagedComponentSpec> builder) {
+                void register1(TypeBuilder<UnmanagedComponentSpec> builder) {
                     builder.defaultImplementation(DefaultUnmanagedComponentSpec)
                 }
 
                 @ComponentType
-                void register2(ComponentTypeBuilder<SampleComponentSpec> builder) {
+                void register2(TypeBuilder<SampleComponentSpec> builder) {
                     builder.internalView(InternalSampleSpec)
                 }
             }
@@ -508,13 +515,13 @@ apply plugin: ClassHolder.InnerRules
             }
 
             class RegisterBinaryRules extends RuleSource {
-                @BinaryType
-                void register1(BinaryTypeBuilder<UnmanagedBinarySpec> builder) {
+                @ComponentType
+                void register1(TypeBuilder<UnmanagedBinarySpec> builder) {
                     builder.defaultImplementation(DefaultUnmanagedBinarySpec)
                 }
 
-                @BinaryType
-                void register2(BinaryTypeBuilder<SampleBinarySpec> builder) {
+                @ComponentType
+                void register2(TypeBuilder<SampleBinarySpec> builder) {
                     builder.internalView(InternalSampleSpec)
                 }
             }

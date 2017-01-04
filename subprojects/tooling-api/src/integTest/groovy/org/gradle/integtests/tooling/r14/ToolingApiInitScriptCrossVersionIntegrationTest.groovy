@@ -15,13 +15,15 @@
  */
 
 package org.gradle.integtests.tooling.r14
+
 import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.internal.os.OperatingSystem
+import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.tooling.GradleConnector
-import org.gradle.test.fixtures.file.LeaksFileHandles
 import spock.lang.Issue
+
 /**
  * Tests that init scripts are used from the _clients_ GRADLE_HOME, not the daemon server's.
  */
@@ -37,7 +39,7 @@ class ToolingApiInitScriptCrossVersionIntegrationTest extends ToolingApiSpecific
         distro.file("bin", OperatingSystem.current().getScriptName("gradle")).permissions = 'rwx------'
         distro.file("init.d/init.gradle") << """
             gradle.allprojects {
-                task echo << { println "from distro $i" }
+                task echo { doLast { println "from distro $i" } }
             }
         """
         distro

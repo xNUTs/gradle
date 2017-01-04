@@ -16,7 +16,8 @@
 package org.gradle.tooling.internal.consumer;
 
 import com.google.common.base.Preconditions;
-import org.gradle.api.internal.classpath.EffectiveClassPath;
+import org.gradle.api.internal.classpath.DefaultModuleRegistry;
+import org.gradle.api.internal.classpath.Module;
 import org.gradle.initialization.BuildCancellationToken;
 import org.gradle.initialization.layout.BuildLayout;
 import org.gradle.initialization.layout.BuildLayoutFactory;
@@ -24,13 +25,20 @@ import org.gradle.internal.Factory;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.classpath.ClassPath;
 import org.gradle.internal.classpath.DefaultClassPath;
-import org.gradle.logging.ProgressLogger;
-import org.gradle.logging.ProgressLoggerFactory;
+import org.gradle.internal.logging.progress.ProgressLogger;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
 import org.gradle.tooling.BuildCancelledException;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.util.DistributionLocator;
 import org.gradle.util.GradleVersion;
-import org.gradle.wrapper.*;
+import org.gradle.wrapper.Download;
+import org.gradle.wrapper.GradleUserHomeLookup;
+import org.gradle.wrapper.IDownload;
+import org.gradle.wrapper.Install;
+import org.gradle.wrapper.Logger;
+import org.gradle.wrapper.PathAssembler;
+import org.gradle.wrapper.WrapperConfiguration;
+import org.gradle.wrapper.WrapperExecutor;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -61,7 +69,7 @@ public class DistributionFactory {
      */
     public Distribution getDefaultDistribution(File projectDir, boolean searchUpwards) {
         BuildLayout layout = new BuildLayoutFactory().getLayoutFor(projectDir, searchUpwards);
-        WrapperExecutor wrapper = WrapperExecutor.forProjectDirectory(layout.getRootDirectory(), System.out);
+        WrapperExecutor wrapper = WrapperExecutor.forProjectDirectory(layout.getRootDirectory());
         if (wrapper.getDistribution() != null) {
             return new ZippedDistribution(wrapper.getConfiguration(), executorFactory, distributionBaseDir);
         }
@@ -72,8 +80,8 @@ public class DistributionFactory {
      * Returns the distribution installed in the specified directory.
      */
     public Distribution getDistribution(File gradleHomeDir) {
-        return new InstalledDistribution(gradleHomeDir, String.format("Gradle installation '%s'", gradleHomeDir),
-                String.format("Gradle installation directory '%s'", gradleHomeDir));
+        return new InstalledDistribution(gradleHomeDir, "Gradle installation '" + gradleHomeDir + "'",
+                "Gradle installation directory '" + gradleHomeDir + "'");
     }
 
     /**
@@ -117,7 +125,7 @@ public class DistributionFactory {
         }
 
         public String getDisplayName() {
-            return String.format("Gradle distribution '%s'", wrapperConfiguration.getDistribution());
+            return "Gradle distribution '" + wrapperConfiguration.getDistribution() + "'";
         }
 
         public ClassPath getToolingImplementationClasspath(final ProgressLoggerFactory progressLoggerFactory, final File userHomeDir, BuildCancellationToken cancellationToken) {
@@ -188,7 +196,7 @@ public class DistributionFactory {
 
         public void download(URI address, File destination) throws Exception {
             ProgressLogger progressLogger = progressLoggerFactory.newOperation(DistributionFactory.class);
-            progressLogger.setDescription(String.format("Download %s", address));
+            progressLogger.setDescription("Download " + address);
             progressLogger.started();
             try {
                 new Download(new Logger(false), "Gradle Tooling API", GradleVersion.current().getVersion()).download(address, destination);
@@ -251,7 +259,12 @@ public class DistributionFactory {
         }
 
         public ClassPath getToolingImplementationClasspath(ProgressLoggerFactory progressLoggerFactory, File userHomeDir, BuildCancellationToken cancellationToken) {
-            return new EffectiveClassPath(getClass().getClassLoader());
+            ClassPath classpath = new DefaultClassPath();
+            DefaultModuleRegistry registry = new DefaultModuleRegistry(null);
+            for (Module module : registry.getModule("gradle-launcher").getAllRequiredModules()) {
+                classpath = classpath.plus(module.getClasspath());
+            }
+            return classpath;
         }
     }
 }

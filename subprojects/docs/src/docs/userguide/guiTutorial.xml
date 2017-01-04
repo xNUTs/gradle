@@ -15,6 +15,15 @@
   -->
 <chapter id="tutorial_gradle_gui">
     <title>Using the Gradle Graphical User Interface</title>
+
+    <note>
+        <para>
+            The Gradle GUI has been deprecated and will be removed in Gradle 4.0.
+            Consider using an IDE with support for Gradle e.g. <ulink url="https://eclipse.org/">Eclipse</ulink>, <ulink url="https://www.jetbrains.com/idea/">IntelliJ</ulink> or
+            <ulink url="https://netbeans.org/">NetBeans</ulink> instead.
+        </para>
+    </note>
+
     <para>In addition to supporting a traditional command line interface, Gradle offers
     a graphical user interface.  This is a stand alone user interface that can be launched with the
     <command>--gui</command> option.</para>
@@ -38,14 +47,14 @@ gradle --gui
         the UI.
     </para>
     <para>The UI displays 4 tabs along the top and an output window along the bottom.</para>
-    <section>
+    <section id="sec:task_tree">
         <title>Task Tree</title>
         <para>
             The Task Tree shows a hierarchical display of all projects and their tasks.
             Double clicking a task executes it.
         </para>
         <para>
-            There is also a filter so that uncommon tasks can be hidden. You can toggle the filter via the Filter button. 
+            There is also a filter so that uncommon tasks can be hidden. You can toggle the filter via the Filter button.
             Editing the filter allows you to configure which tasks and projects are shown. Hidden tasks show up in red.
             Note: newly created tasks will show up by default (versus being hidden by default).
         </para>
@@ -57,9 +66,9 @@ gradle --gui
             <listitem><para>Edit the build.gradle file.
                 Note: this requires Java 1.6 or higher and requires that you have .gradle files associated in your OS.
             </para></listitem>
-        </itemizedlist>        
+        </itemizedlist>
     </section>
-    <section>
+    <section id="sec:favorites">
         <title>Favorites</title>
         <para>
             The Favorites tab is a good place to store commonly-executed commands. These can be complex commands
@@ -74,7 +83,7 @@ gradle --gui
             This override always forces the output to be shown.
         </para>
     </section>
-    <section>
+    <section id="sec:command_line">
         <title>Command Line</title>
         <para>
             The Command Line tab is where you can execute a single Gradle command directly.
@@ -82,7 +91,7 @@ gradle --gui
             a place to try out commands before adding them to favorites.
         </para>
     </section>
-    <section>
+    <section id="sec:setup">
         <title>Setup</title>
         <para>The Setup tab allows configuration of some general settings.</para>
         <figure>

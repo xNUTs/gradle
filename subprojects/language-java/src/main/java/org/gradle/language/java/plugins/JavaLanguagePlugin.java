@@ -19,18 +19,20 @@ package org.gradle.language.java.plugins;
 import com.google.common.collect.ImmutableSet;
 import org.gradle.api.*;
 import org.gradle.api.artifacts.dsl.RepositoryHandler;
+import org.gradle.api.attributes.AttributesSchema;
 import org.gradle.api.internal.artifacts.ArtifactDependencyResolver;
 import org.gradle.api.internal.artifacts.repositories.ResolutionAwareRepository;
 import org.gradle.internal.Transformers;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.jvm.JvmByteCode;
 import org.gradle.jvm.internal.*;
+import org.gradle.jvm.internal.resolve.SourceSetDependencyResolvingClasspath;
 import org.gradle.jvm.platform.JavaPlatform;
 import org.gradle.language.base.DependentSourceSet;
 import org.gradle.language.base.LanguageSourceSet;
 import org.gradle.language.base.internal.SourceTransformTaskConfig;
-import org.gradle.language.base.internal.model.DefaultVariantsMetaData;
-import org.gradle.language.base.internal.model.VariantsMetaData;
+import org.gradle.jvm.internal.resolve.DefaultVariantsMetaData;
+import org.gradle.jvm.internal.resolve.VariantsMetaData;
 import org.gradle.language.base.internal.registry.LanguageTransform;
 import org.gradle.language.base.internal.registry.LanguageTransformContainer;
 import org.gradle.language.base.plugins.ComponentModelBasePlugin;
@@ -43,10 +45,11 @@ import org.gradle.model.RuleSource;
 import org.gradle.model.internal.manage.schema.ModelSchema;
 import org.gradle.model.internal.manage.schema.ModelSchemaStore;
 import org.gradle.platform.base.BinarySpec;
+import org.gradle.platform.base.ComponentType;
 import org.gradle.platform.base.DependencySpec;
-import org.gradle.platform.base.LanguageType;
-import org.gradle.platform.base.LanguageTypeBuilder;
+import org.gradle.platform.base.TypeBuilder;
 import org.gradle.platform.base.internal.BinarySpecInternal;
+import org.gradle.util.DeprecationLogger;
 
 import java.io.File;
 import java.util.Collections;
@@ -64,6 +67,7 @@ import static org.gradle.util.CollectionUtils.first;
 @Incubating
 public class JavaLanguagePlugin implements Plugin<Project> {
 
+    @Override
     public void apply(Project project) {
         project.getPluginManager().apply(ComponentModelBasePlugin.class);
         project.getPluginManager().apply(JvmResourcesPlugin.class);
@@ -71,9 +75,8 @@ public class JavaLanguagePlugin implements Plugin<Project> {
 
     @SuppressWarnings("UnusedDeclaration")
     static class Rules extends RuleSource {
-        @LanguageType
-        void registerLanguage(LanguageTypeBuilder<JavaSourceSet> builder) {
-            builder.setLanguageName("java");
+        @ComponentType
+        void registerLanguage(TypeBuilder<JavaSourceSet> builder) {
             builder.defaultImplementation(DefaultJavaLanguageSourceSet.class);
         }
 
@@ -94,22 +97,32 @@ public class JavaLanguagePlugin implements Plugin<Project> {
             this.config = new JavaSourceTransformTaskConfig(schemaStore);
         }
 
+        @Override
+        public String getLanguageName() {
+            return "java";
+        }
+
+        @Override
         public Class<JavaSourceSet> getSourceSetType() {
             return JavaSourceSet.class;
         }
 
+        @Override
         public Map<String, Class<?>> getBinaryTools() {
             return Collections.emptyMap();
         }
 
+        @Override
         public Class<JvmByteCode> getOutputType() {
             return JvmByteCode.class;
         }
 
+        @Override
         public SourceTransformTaskConfig getTransformTask() {
             return config;
         }
 
+        @Override
         public boolean applyToBinary(BinarySpec binary) {
             return binary instanceof WithJvmAssembly;
         }
@@ -122,23 +135,32 @@ public class JavaLanguagePlugin implements Plugin<Project> {
                 this.schemaStore = schemaStore;
             }
 
+            @Override
             public String getTaskPrefix() {
                 return "compile";
             }
 
+            @Override
             public Class<? extends DefaultTask> getTaskType() {
                 return PlatformJavaCompile.class;
             }
 
+            @Override
             public void configureTask(Task task, BinarySpec binary, LanguageSourceSet sourceSet, ServiceRegistry serviceRegistry) {
-                PlatformJavaCompile compile = (PlatformJavaCompile) task;
+                final PlatformJavaCompile compile = (PlatformJavaCompile) task;
                 JavaSourceSet javaSourceSet = (JavaSourceSet) sourceSet;
                 JvmAssembly assembly = ((WithJvmAssembly) binary).getAssembly();
                 assembly.builtBy(compile);
 
-                compile.setDescription(String.format("Compiles %s.", javaSourceSet));
+                compile.setDescription("Compiles " + javaSourceSet + ".");
                 compile.setDestinationDir(conventionalCompilationOutputDirFor(assembly));
-                compile.setDependencyCacheDir(new File(compile.getProject().getBuildDir(), "jvm-dep-cache"));
+                DeprecationLogger.whileDisabled(new Runnable() {
+                    @Override
+                    @SuppressWarnings("deprecation")
+                    public void run() {
+                        compile.setDependencyCacheDir(new File(compile.getProject().getBuildDir(), "jvm-dep-cache"));
+                    }
+                });
                 compile.dependsOn(javaSourceSet);
                 compile.setSource(javaSourceSet.getSource());
 
@@ -165,7 +187,8 @@ public class JavaLanguagePlugin implements Plugin<Project> {
                 List<ResolutionAwareRepository> resolutionAwareRepositories = collect(repositories, Transformers.cast(ResolutionAwareRepository.class));
                 ModelSchema<? extends BinarySpec> schema = schemaStore.getSchema(((BinarySpecInternal) binary).getPublicType());
                 VariantsMetaData variantsMetaData = DefaultVariantsMetaData.extractFrom(binary, schema);
-                return new SourceSetDependencyResolvingClasspath((BinarySpecInternal) binary, javaSourceSet, dependencies, dependencyResolver, variantsMetaData, resolutionAwareRepositories);
+                AttributesSchema attributesSchema = serviceRegistry.get(AttributesSchema.class);
+                return new SourceSetDependencyResolvingClasspath((BinarySpecInternal) binary, javaSourceSet, dependencies, dependencyResolver, variantsMetaData, resolutionAwareRepositories, attributesSchema);
             }
 
             private static Iterable<DependencySpec> compileDependencies(BinarySpec binary, DependentSourceSet sourceSet) {

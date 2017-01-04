@@ -16,7 +16,7 @@
 
 package org.gradle.language.scala.internal.toolchain;
 
-import org.gradle.api.internal.tasks.compile.daemon.CompilerDaemonManager;
+import org.gradle.process.internal.daemon.WorkerDaemonManager;
 import org.gradle.api.internal.tasks.scala.DaemonScalaCompiler;
 import org.gradle.api.internal.tasks.scala.NormalizingScalaCompiler;
 import org.gradle.api.internal.tasks.scala.ScalaJavaJointCompileSpec;
@@ -34,11 +34,11 @@ public class DefaultScalaToolProvider implements ToolProvider {
 
     private final File gradleUserHomeDir;
     private final File rootProjectDir;
-    private final CompilerDaemonManager compilerDaemonManager;
+    private final WorkerDaemonManager compilerDaemonManager;
     private final Set<File> resolvedScalaClasspath;
     private final Set<File> resolvedZincClasspath;
 
-    public DefaultScalaToolProvider(File gradleUserHomeDir, File rootProjectDir, CompilerDaemonManager compilerDaemonManager, Set<File> resolvedScalaClasspath, Set<File> resolvedZincClasspath) {
+    public DefaultScalaToolProvider(File gradleUserHomeDir, File rootProjectDir, WorkerDaemonManager compilerDaemonManager, Set<File> resolvedScalaClasspath, Set<File> resolvedZincClasspath) {
         this.gradleUserHomeDir = gradleUserHomeDir;
         this.rootProjectDir = rootProjectDir;
         this.compilerDaemonManager = compilerDaemonManager;
@@ -46,6 +46,7 @@ public class DefaultScalaToolProvider implements ToolProvider {
         this.resolvedZincClasspath = resolvedZincClasspath;
     }
 
+    @Override
     @SuppressWarnings("unchecked")
     public <T extends CompileSpec> org.gradle.language.base.internal.compile.Compiler<T> newCompiler(Class<T> spec) {
         if (ScalaJavaJointCompileSpec.class.isAssignableFrom(spec)) {
@@ -60,10 +61,12 @@ public class DefaultScalaToolProvider implements ToolProvider {
         throw new IllegalArgumentException(String.format("Don't know how to provide tool of type %s.", toolType.getSimpleName()));
     }
 
+    @Override
     public boolean isAvailable() {
         return true;
     }
 
+    @Override
     public void explain(TreeVisitor<? super String> visitor) {
 
     }

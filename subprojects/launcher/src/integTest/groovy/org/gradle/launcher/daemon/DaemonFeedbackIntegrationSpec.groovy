@@ -29,10 +29,12 @@ class DaemonFeedbackIntegrationSpec extends DaemonIntegrationSpec {
     def "daemon keeps logging to the file even if the build is stopped"() {
         given:
         file("build.gradle") << """
-task sleep << {
-    println 'taking a nap...'
-    Thread.sleep(10000)
-    println 'finished the nap...'
+task sleep {
+    doLast {
+        println 'taking a nap...'
+        Thread.sleep(10000)
+        println 'finished the nap...'
+    }
 }
 """
 
@@ -98,9 +100,9 @@ task sleep << {
 
     def "background daemon infrastructure logs with DEBUG"() {
         given:
-        file("build.gradle") << "task foo << { println 'hey!' }"
+        file("build.gradle") << "task foo { doLast { println 'hey!' } }"
 
-        when: "runing build with --info"
+        when: "running build with --info"
         executer.withArguments("-i").withTasks('foo').run()
 
         then:
@@ -187,6 +189,9 @@ task sleep << {
         daemon.standardOutput.count("debug me!") == 1
 
         debugBuild.output.count("debug me!") == 1
+
+        cleanup:
+        daemon.abort()
     }
 
     List<File> getLogs(File baseDir) {

@@ -37,17 +37,17 @@ class LanguageSourceSetIntegrationTest extends AbstractIntegrationSpec {
         fails "model"
 
         then:
-        failureCauseContains("Declaration of model rule Rules#lss is invalid.")
+        failureCauseContains("Declaration of model rule Rules#lss(JavaSourceSet) is invalid.")
         failureCauseContains("A model element of type: 'org.gradle.language.java.JavaSourceSet' can not be constructed.")
     }
 
-    def "can not create a top level LSS for registered default implementation"() {
+    def "can not create a top level LSS for using an implementation class"() {
         buildFile.text = """
-        ${registerJavaLanguage()}
+        ${registerCustomLanguageWithImpl()}
 
         class Rules extends RuleSource {
             @Model
-            void lss(org.gradle.api.internal.java.DefaultJavaSourceSet javaSource) {
+            void lss(DefaultCustomSourceSet source) {
             }
         }
         apply plugin: Rules
@@ -57,7 +57,7 @@ class LanguageSourceSetIntegrationTest extends AbstractIntegrationSpec {
         fails "model"
 
         then:
-        failure.assertHasCause("Cannot create a 'org.gradle.api.internal.java.DefaultJavaSourceSet' because this type is not known to sourceSets. Known types are: org.gradle.language.java.JavaSourceSet")
+        failure.assertHasCause("Cannot create an instance of type 'DefaultCustomSourceSet' as this type is not known. Known types: org.gradle.platform.base.ComponentSpec, CustomSourceSet, ${LanguageSourceSet.name}")
     }
 
     def "can create a top level LSS with a rule"() {
@@ -94,7 +94,7 @@ class LanguageSourceSetIntegrationTest extends AbstractIntegrationSpec {
 
         then:
         def modelNode = ModelReportOutput.from(output).modelNode
-        modelNode.lss.@creator[0] == "lss(CustomSourceSet) @ build.gradle line 14, column 13"
+        modelNode.lss.@creator[0] == "lss(CustomSourceSet) @ build.gradle line 13, column 13"
         modelNode.lss.@type[0] == "CustomSourceSet"
     }
 
@@ -126,11 +126,11 @@ class LanguageSourceSetIntegrationTest extends AbstractIntegrationSpec {
 
         buildType.inputs.@type[0] == 'CustomSourceSet'
         buildType.inputs.@nodeValue[0] == 'null'
-        buildType.inputs.@creator[0] == 'Rules#buildType'
+        buildType.inputs.@creator[0] == 'Rules#buildType(BuildType)'
 
         buildType.sources.@type[0] == 'CustomSourceSet'
-        buildType.sources.@nodeValue[0] == "CustomSourceSet 'buildType:sources'"
-        buildType.sources.@creator[0] == 'Rules#buildType'
+        buildType.sources.@nodeValue[0] == "Custom source 'sources'"
+        buildType.sources.@creator[0] == 'Rules#buildType(BuildType)'
     }
 
     def "An LSS can be an element of managed collections"() {
@@ -162,40 +162,36 @@ class LanguageSourceSetIntegrationTest extends AbstractIntegrationSpec {
         def buildType = ModelReportOutput.from(output).modelNode.buildType
 
         buildType.componentSources.@type[0] == "org.gradle.model.ModelMap<CustomSourceSet>"
-        buildType.componentSources.@creator[0] == 'Rules#buildType'
+        buildType.componentSources.@creator[0] == 'Rules#buildType(BuildType)'
         buildType.componentSources.componentA.@type[0] == 'CustomSourceSet'
-        buildType.componentSources.componentA.@creator[0] == 'Rules#addSources > create(componentA)'
+        buildType.componentSources.componentA.@creator[0] == 'Rules#addSources(BuildType) > create(componentA)'
 
         buildType.testSources.@type[0] == "org.gradle.model.ModelSet<CustomSourceSet>"
-        buildType.testSources.@creator[0] == 'Rules#buildType'
+        buildType.testSources.@creator[0] == 'Rules#buildType(BuildType)'
         buildType.testSources."0".@type[0] == 'CustomSourceSet'
-        buildType.testSources."0".@creator[0] == 'Rules#addSources > create()'
-    }
-
-    private String registerJavaLanguage() {
-        return """
-            import org.gradle.language.java.internal.DefaultJavaLanguageSourceSet
-
-            class JavaLangRuleSource extends RuleSource {
-
-                @LanguageType
-                void registerLanguage(LanguageTypeBuilder<JavaSourceSet> builder) {
-                    builder.setLanguageName("java");
-                    builder.defaultImplementation(DefaultJavaLanguageSourceSet.class);
-                }
-
-            }
-            apply plugin: JavaLangRuleSource
-        """
+        buildType.testSources."0".@creator[0] == 'Rules#addSources(BuildType) > create()'
     }
 
     private String registerCustomLanguage() {
         return """
             @Managed interface CustomSourceSet extends LanguageSourceSet {}
             class CustomSourceSetPlugin extends RuleSource {
-                @LanguageType
-                void registerCustomLanguage(LanguageTypeBuilder<CustomSourceSet> builder) {
-                    builder.setLanguageName("managed")
+                @ComponentType
+                void registerCustomLanguage(TypeBuilder<CustomSourceSet> builder) {
+                }
+            }
+            apply plugin: CustomSourceSetPlugin
+        """.stripIndent()
+    }
+
+    private String registerCustomLanguageWithImpl() {
+        return """
+            interface CustomSourceSet extends LanguageSourceSet {}
+            class DefaultCustomSourceSet extends BaseLanguageSourceSet implements CustomSourceSet {}
+            class CustomSourceSetPlugin extends RuleSource {
+                @ComponentType
+                void registerCustomLanguage(TypeBuilder<CustomSourceSet> builder) {
+                    builder.defaultImplementation(DefaultCustomSourceSet)
                 }
             }
             apply plugin: CustomSourceSetPlugin

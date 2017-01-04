@@ -23,10 +23,16 @@ import org.gradle.api.internal.plugins.PluginRegistry
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.internal.tasks.options.OptionReader
 import org.gradle.cache.CacheRepository
-import org.gradle.execution.*
+import org.gradle.execution.BuildConfigurationActionExecuter
+import org.gradle.execution.BuildExecuter
+import org.gradle.execution.DefaultBuildExecuter
+import org.gradle.execution.ProjectConfigurer
+import org.gradle.execution.TaskGraphExecuter
+import org.gradle.execution.TaskSelector
 import org.gradle.execution.taskgraph.DefaultTaskGraphExecuter
 import org.gradle.initialization.BuildCancellationToken
-import org.gradle.internal.TimeProvider
+import org.gradle.internal.operations.BuildOperationWorkerRegistry
+import org.gradle.internal.time.TimeProvider
 import org.gradle.internal.concurrent.ExecutorFactory
 import org.gradle.internal.environment.GradleBuildEnvironment
 import org.gradle.internal.event.DefaultListenerManager
@@ -63,6 +69,7 @@ public class GradleScopeServicesTest extends Specification {
         parent.get(TimeProvider) >> Stub(TimeProvider)
         parent.get(BuildOperationExecutor) >> Stub(BuildOperationExecutor)
         parent.get(Instantiator) >> Stub(Instantiator)
+        parent.get(BuildOperationWorkerRegistry) >> Stub(BuildOperationWorkerRegistry)
         gradle.getStartParameter() >> startParameter
         pluginRegistryParent.createChild(_, _, _) >> pluginRegistryChild
     }

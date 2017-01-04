@@ -17,14 +17,18 @@
 package org.gradle.launcher.continuous
 
 import groovy.transform.TupleConstructor
+import org.gradle.internal.os.OperatingSystem
 import org.gradle.test.fixtures.file.TestFile
 
 import static org.gradle.internal.filewatch.ChangeReporter.SHOW_INDIVIDUAL_CHANGES_LIMIT
+import static org.gradle.internal.filewatch.DefaultFileSystemChangeWaiterFactory.QUIET_PERIOD_SYSPROP
 
 // Developer is able to easily determine the file(s) that triggered a rebuild
 class ContinuousBuildChangeReportingIntegrationTest extends Java7RequiringContinuousIntegrationTest {
     TestFile inputDir
     private static int changesLimit = SHOW_INDIVIDUAL_CHANGES_LIMIT
+    // Use an extended quiet period in the test to ensure all file events are reported together.
+    def quietPeriod = OperatingSystem.current().isMacOsX() ? 2500L : 1000L
 
     def setup() {
         buildFile << """
@@ -34,6 +38,8 @@ class ContinuousBuildChangeReportingIntegrationTest extends Java7RequiringContin
             }
         """
         inputDir = file("inputDir").createDir()
+
+        executer.withBuildJvmOpts("-D${QUIET_PERIOD_SYSPROP}=${quietPeriod}")
     }
 
     def "should report the absolute file path of the created file when a single file is created in the input directory"() {
@@ -169,6 +175,31 @@ class ContinuousBuildChangeReportingIntegrationTest extends Java7RequiringContin
         succeeds()
         sendEOT()
         assertReportsChanges([new ChangeEntry("new file", newfile1), new ChangeEntry("modified", inputFiles[2]), new ChangeEntry("deleted", inputFiles[7]), new ChangeEntry("new file", newfile2)], true)
+    }
+
+    def "should report changes that happen when the build is executing"() {
+        given:
+        buildFile << """
+            gradle.taskGraph.afterTask { Task task ->
+                if(task.path == ':theTask' && !file('changetrigged').exists()) {
+                   sleep(500) // attempt to workaround JDK-8145981
+                   file('inputDir/input.txt').text = 'New input file'
+                   file('changetrigged').text = 'done'
+                }
+            }
+        """
+        waitAtEndOfBuildForQuietPeriod(quietPeriod)
+
+        when:
+        succeeds("theTask")
+
+        then:
+        sendEOT()
+        results.size() == 2
+        results.each {
+            assert it.executedTasks == [':theTask']
+        }
+        assertReportsChanges([new ChangeEntry("new file", file("inputDir/input.txt"))])
     }
 
     @TupleConstructor

@@ -17,6 +17,7 @@
 package org.gradle.api.tasks.compile
 
 import org.gradle.api.internal.TaskExecutionHistory
+import org.gradle.api.internal.file.collections.SimpleFileCollection
 import org.gradle.api.tasks.WorkResult
 import org.gradle.jvm.platform.JavaPlatform
 import org.gradle.language.base.internal.compile.Compiler
@@ -33,12 +34,13 @@ class JavaCompileTest extends Specification {
     def platform = Mock(JavaPlatform)
     def toolProvider = Mock(ToolProvider)
     def compiler = Mock(Compiler)
-    def task = TestUtil.createTask(JavaCompile)
+    def task = TestUtil.create(tmpDir).task(JavaCompile)
 
     def "uses specified ToolChain to create a Compiler to do the work"() {
         given:
         task.outputs.history = Stub(TaskExecutionHistory)
         task.destinationDir = tmpDir.file("classes")
+        task.classpath = new SimpleFileCollection()
         task.toolChain = toolChain
 
         when:

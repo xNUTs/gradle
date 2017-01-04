@@ -17,6 +17,7 @@
 package org.gradle.language.scala.tasks;
 
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.gradle.api.Incubating;
@@ -70,6 +71,7 @@ public abstract class AbstractScalaCompile extends AbstractCompile {
 
     abstract protected org.gradle.language.base.internal.compile.Compiler<ScalaJavaJointCompileSpec> getCompiler(ScalaJavaJointCompileSpec spec);
 
+    @Override
     @TaskAction
     protected void compile() {
         ScalaJavaJointCompileSpec spec = createSpec();
@@ -83,7 +85,7 @@ public abstract class AbstractScalaCompile extends AbstractCompile {
         spec.setDestinationDir(getDestinationDir());
         spec.setWorkingDir(getProject().getProjectDir());
         spec.setTempDir(getTemporaryDir());
-        spec.setClasspath(getClasspath());
+        spec.setCompileClasspath(ImmutableList.copyOf(getClasspath()));
         spec.setSourceCompatibility(getSourceCompatibility());
         spec.setTargetCompatibility(getTargetCompatibility());
         spec.setCompileOptions(getOptions());
@@ -93,8 +95,8 @@ public abstract class AbstractScalaCompile extends AbstractCompile {
 
     protected void configureIncrementalCompilation(ScalaCompileSpec spec) {
 
-        Map<File, File> globalAnalysisMap = getOrCreateGlobalAnalysisMap();
-        HashMap<File, File> filteredMap = filterForClasspath(globalAnalysisMap, spec.getClasspath());
+        Map<File, File> globalAnalysisMap = createOrGetGlobalAnalysisMap();
+        HashMap<File, File> filteredMap = filterForClasspath(globalAnalysisMap, spec.getCompileClasspath());
         spec.setAnalysisMap(filteredMap);
 
         if (LOGGER.isDebugEnabled()) {
@@ -105,7 +107,7 @@ public abstract class AbstractScalaCompile extends AbstractCompile {
     }
 
     @SuppressWarnings("unchecked")
-    protected Map<File, File> getOrCreateGlobalAnalysisMap() {
+    protected Map<File, File> createOrGetGlobalAnalysisMap() {
         ExtraPropertiesExtension extraProperties = getProject().getRootProject().getExtensions().getExtraProperties();
         Map<File, File> analysisMap;
 

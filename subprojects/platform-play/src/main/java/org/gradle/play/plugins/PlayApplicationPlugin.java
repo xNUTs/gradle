@@ -16,6 +16,7 @@
 package org.gradle.play.plugins;
 
 import org.gradle.api.*;
+import org.gradle.api.artifacts.ConfigurationContainer;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.internal.artifacts.publish.DefaultPublishArtifact;
 import org.gradle.api.internal.file.FileResolver;
@@ -36,7 +37,10 @@ import org.gradle.language.scala.tasks.PlatformScalaCompile;
 import org.gradle.language.twirl.TwirlSourceSet;
 import org.gradle.model.*;
 import org.gradle.model.internal.core.Hidden;
-import org.gradle.platform.base.*;
+import org.gradle.platform.base.BinaryTasks;
+import org.gradle.platform.base.ComponentBinaries;
+import org.gradle.platform.base.ComponentType;
+import org.gradle.platform.base.TypeBuilder;
 import org.gradle.platform.base.internal.DefaultPlatformRequirement;
 import org.gradle.platform.base.internal.PlatformRequirement;
 import org.gradle.platform.base.internal.PlatformResolvers;
@@ -90,14 +94,19 @@ public class PlayApplicationPlugin implements Plugin<Project> {
             return serviceRegistry.get(FileResolver.class);
         }
 
+        @Hidden @Model
+        ConfigurationContainer configurationContainer(ServiceRegistry serviceRegistry) {
+            return serviceRegistry.get(ConfigurationContainer.class);
+        }
+
         @ComponentType
-        void registerPlayPlatformAwareComponentSpecType(ComponentTypeBuilder<PlayPlatformAwareComponentSpec> builder) {
+        void registerPlayPlatformAwareComponentSpecType(TypeBuilder<PlayPlatformAwareComponentSpec> builder) {
             builder.defaultImplementation(DefaultPlayPlatformAwareComponentSpec.class);
             builder.internalView(PlayPlatformAwareComponentSpecInternal.class);
         }
 
         @ComponentType
-        void registerPlayApplicationSpecType(ComponentTypeBuilder<PlayApplicationSpec> builder) {
+        void registerPlayApplicationSpecType(TypeBuilder<PlayApplicationSpec> builder) {
             builder.internalView(PlayApplicationSpecInternal.class);
         }
 
@@ -111,8 +120,8 @@ public class PlayApplicationPlugin implements Plugin<Project> {
             builder.create("play");
         }
 
-        @BinaryType
-        void registerApplication(BinaryTypeBuilder<PlayApplicationBinarySpec> builder) {
+        @ComponentType
+        void registerApplication(TypeBuilder<PlayApplicationBinarySpec> builder) {
             builder.defaultImplementation(DefaultPlayApplicationBinarySpec.class);
             builder.internalView(PlayApplicationBinarySpecInternal.class);
         }
@@ -159,8 +168,8 @@ public class PlayApplicationPlugin implements Plugin<Project> {
                     playBinaryInternal.setTargetPlatform(chosenPlatform);
                     playBinaryInternal.setToolChain(playToolChainInternal);
 
-                    File mainJar = new File(binaryBuildDir, String.format("lib/%s.jar", projectIdentifier.getName()));
-                    File assetsJar = new File(binaryBuildDir, String.format("lib/%s-assets.jar", projectIdentifier.getName()));
+                    File mainJar = new File(binaryBuildDir, "lib/" + projectIdentifier.getName() + ".jar");
+                    File assetsJar = new File(binaryBuildDir, "lib/" + projectIdentifier.getName() + "-assets.jar");
                     playBinaryInternal.setJarFile(mainJar);
                     playBinaryInternal.setAssetsJarFile(assetsJar);
 
@@ -181,7 +190,7 @@ public class PlayApplicationPlugin implements Plugin<Project> {
 
         @Mutate
         // TODO:LPTR This should be like @Finalize void generatedSourcesAreInputs(@Each PlayApplicationBinarySpecInternal binary)
-        void generatedSourcesAreInputs(ModelMap<PlayApplicationBinarySpecInternal> binaries, final ServiceRegistry serviceRegistry) {
+        void generatedSourcesAreInputs(@Path("binaries") ModelMap<PlayApplicationBinarySpecInternal> binaries, final ServiceRegistry serviceRegistry) {
             binaries.afterEach(new Action<PlayApplicationBinarySpecInternal>() {
                 @Override
                 public void execute(PlayApplicationBinarySpecInternal playApplicationBinarySpec) {
@@ -202,7 +211,7 @@ public class PlayApplicationPlugin implements Plugin<Project> {
 
         private PlatformRequirement getTargetPlatform(PlayApplicationSpecInternal playApplicationSpec) {
             if (playApplicationSpec.getTargetPlatforms().isEmpty()) {
-                String defaultPlayPlatform = String.format("play-%s", DefaultPlayPlatform.DEFAULT_PLAY_VERSION);
+                String defaultPlayPlatform = "play-" + DefaultPlayPlatform.DEFAULT_PLAY_VERSION;
                 return DefaultPlatformRequirement.create(defaultPlayPlatform);
             }
             return playApplicationSpec.getTargetPlatforms().get(0);
@@ -265,7 +274,7 @@ public class PlayApplicationPlugin implements Plugin<Project> {
         }
 
         @Mutate
-        void createPlayRunTask(ModelMap<Task> tasks, ModelMap<PlayApplicationBinarySpecInternal> playBinaries, final ServiceRegistry serviceRegistry, final PlayPluginConfigurations configurations, ProjectIdentifier projectIdentifier, final PlayToolChainInternal playToolChain) {
+        void createPlayRunTask(ModelMap<Task> tasks, @Path("binaries") ModelMap<PlayApplicationBinarySpecInternal> playBinaries, final ServiceRegistry serviceRegistry, final PlayPluginConfigurations configurations, ProjectIdentifier projectIdentifier, final PlayToolChainInternal playToolChain) {
 
             for (final PlayApplicationBinarySpecInternal binary : playBinaries) {
                 String runTaskName = binary.getTasks().taskName("run");

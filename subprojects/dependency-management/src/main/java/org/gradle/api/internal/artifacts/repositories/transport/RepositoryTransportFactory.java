@@ -29,7 +29,7 @@ import org.gradle.internal.resource.connector.ResourceConnectorSpecification;
 import org.gradle.internal.resource.transfer.ExternalResourceConnector;
 import org.gradle.internal.resource.transport.ResourceConnectorRepositoryTransport;
 import org.gradle.internal.resource.transport.file.FileTransport;
-import org.gradle.logging.ProgressLoggerFactory;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
 import org.gradle.util.BuildCommencedTimeProvider;
 
 import java.util.Collection;
@@ -115,6 +115,7 @@ public class RepositoryTransportFactory {
             AuthenticationInternal authenticationInternal = (AuthenticationInternal) authentication;
             boolean isAuthenticationSupported = false;
             Credentials credentials = authenticationInternal.getCredentials();
+            boolean needCredentials = authenticationInternal.requiresCredentials();
 
             for (Class<?> authenticationType : factory.getSupportedAuthentication()) {
                 if (authenticationType.isAssignableFrom(authentication.getClass())) {
@@ -134,7 +135,9 @@ public class RepositoryTransportFactory {
                         credentials.getClass().getSimpleName(), authentication));
                 }
             } else {
-                throw new InvalidUserDataException("You cannot configure authentication schemes for a repository if no credentials are provided.");
+                if (needCredentials) {
+                    throw new InvalidUserDataException("You cannot configure authentication schemes for this repository type if no credentials are provided.");
+                }
             }
 
             if (!configuredAuthenticationTypes.add(authenticationInternal.getType())) {
